@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let userMarker;
   let routeLines = [];
   let mapStoreMarkers = [];
+  let nearbyStoreMarkers = [];
 
   // Coordinate dictionary
   const locationCoordinates = {
@@ -40,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (data.success) {
         allStores = data.data;
+        renderAllNearbyStoresOnMap();
       }
     } catch (err) {
       console.error('Failed to load stores:', err);
@@ -96,6 +98,12 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       map.setView([lat, lng], 12);
     }
+
+    renderAllNearbyStoresOnMap();
+
+    // Re-trigger product search if search input has value to update shown results and prices
+    const q = productSearchInput.value.trim();
+    if (q) searchProducts(q);
   }
 
   userLocationSelect.addEventListener('change', () => {
@@ -202,7 +210,61 @@ document.addEventListener('DOMContentLoaded', () => {
     return R * c;
   }
 
-  // Product Search with Unit Price Sorting
+  // Get stores within distance limit from user starting coordinates
+  function getNearbyStores() {
+    const locKey = userLocationSelect.value;
+    const userLoc = locationCoordinates[locKey] || locationCoordinates.custom || locationCoordinates.jerusalem;
+    const maxDistLimit = parseFloat(maxDistanceSlider.value);
+    
+    return allStores.map(store => {
+      const dist = calculateDistance(userLoc.lat, userLoc.lon, store.latitude, store.longitude);
+      return { ...store, distance: dist };
+    }).filter(store => store.distance <= maxDistLimit);
+  }
+
+  // Draw all supermarkets within radius on map immediately
+  function renderAllNearbyStoresOnMap() {
+    // Clear previous store markers (but keep user start marker)
+    nearbyStoreMarkers.forEach(m => map.removeLayer(m));
+    nearbyStoreMarkers = [];
+    
+    // Clear route layers since user configuration changed
+    routeLines.forEach(l => map.removeLayer(l));
+    routeLines = [];
+    
+    const nearby = getNearbyStores();
+    
+    nearby.forEach(store => {
+      const storeColor = getChainColor(store.chain_id);
+      const storeIcon = L.divIcon({
+        className: 'map-store-pin',
+        html: `<div style="background: ${storeColor}; width: 12px; height: 12px; border: 2px solid white; border-radius: 4px; box-shadow: 0 0 10px ${storeColor};"></div>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6]
+      });
+
+      const marker = L.marker([store.latitude, store.longitude], { icon: storeIcon })
+        .bindPopup(`
+          <div style="direction:rtl; text-align:right; font-family:'Rubik'; font-size:12px; color:var(--text-primary); line-height: 1.4;">
+            <strong>${getChainNameHebrew(store.chain_id)} (${store.name})</strong><br>
+            <span style="color:var(--text-secondary); font-size:11px;">מרחק: ${store.distance.toFixed(1)} ק"מ</span>
+          </div>
+        `, { closeButton: false })
+        .addTo(map);
+      
+      nearbyStoreMarkers.push(marker);
+    });
+
+    // Auto fit map bounds to contain user home and all stores within radius
+    if (nearby.length > 0) {
+      const locKey = userLocationSelect.value;
+      const userLoc = locationCoordinates[locKey] || locationCoordinates.custom || locationCoordinates.jerusalem;
+      const coords = [[userLoc.lat, userLoc.lon], ...nearby.map(s => [s.latitude, s.longitude])];
+      map.fitBounds(L.latLngBounds(coords), { padding: [40, 40] });
+    }
+  }
+
+  // Product Search with Scoped Unit Price Sorting
   async function searchProducts(query) {
     try {
       searchResults.innerHTML = '<div class="loading-placeholder">מחפש מוצרים במאגר...</div>';
@@ -215,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Fetch prices for all matched products in parallel to calculate sorting metrics
+      // Fetch prices for all matched products in parallel
       const productList = data.data;
       const pricePromises = productList.map(p => 
         fetch(`/api/v1/prices?barcode=${p.barcode}`).then(r => r.json())
@@ -223,27 +285,43 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const priceResults = await Promise.all(pricePromises);
       
-      // Enrich each product with price statistics
+      // Get nearby stores to scope results
+      const nearbyStores = getNearbyStores();
+      const nearbyStoreIds = new Set(nearbyStores.map(s => s.id));
+      
+      // Enrich each product with price statistics in nearby stores only
       const enrichedProducts = productList.map((prod, idx) => {
         const pricesPayload = priceResults[idx];
         const storePrices = pricesPayload.success ? pricesPayload.data : [];
         
-        let minUnitPrice = Infinity;
-        let cheapestRecord = null;
+        // Only include prices from stores within selected driving distance
+        const localPrices = storePrices.filter(priceRec => nearbyStoreIds.has(priceRec.store_id));
         
-        storePrices.forEach(priceRec => {
-          if (priceRec.unit_price < minUnitPrice) {
-            minUnitPrice = priceRec.unit_price;
-            cheapestRecord = priceRec;
-          }
+        // Enrich prices with distance coordinates and sort cheapest first
+        const localPricesEnriched = localPrices.map(priceRec => {
+          const storeObj = nearbyStores.find(s => s.id === priceRec.store_id);
+          return {
+            ...priceRec,
+            distance: storeObj ? storeObj.distance : 999
+          };
         });
+
+        localPricesEnriched.sort((a, b) => a.price - b.price);
+        
+        const cheapestRecord = localPricesEnriched[0] || null;
         
         return {
           ...prod,
           cheapestPriceRecord: cheapestRecord,
-          minUnitPrice: minUnitPrice === Infinity ? 999999 : minUnitPrice
+          minUnitPrice: cheapestRecord ? cheapestRecord.unit_price : 999999,
+          allLocalPrices: localPricesEnriched
         };
-      });
+      }).filter(prod => prod.cheapestPriceRecord !== null); // ONLY show products in those branches
+
+      if (enrichedProducts.length === 0) {
+        searchResults.innerHTML = '<div class="loading-placeholder">אין מוצרים זמינים בסניפים שברדיוס הנבחר</div>';
+        return;
+      }
 
       // Sort products by cheapest unit price (cheapest per 100 grams/units first)
       enrichedProducts.sort((a, b) => a.minUnitPrice - b.minUnitPrice);
@@ -265,23 +343,40 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Format pricing block
       let pricingHtml = '';
-      if (prod.cheapestPriceRecord) {
+      if (prod.allLocalPrices && prod.allLocalPrices.length > 0) {
+        const pricesListHtml = prod.allLocalPrices.map((p, idx) => {
+          const isCheapest = idx === 0;
+          const chainColor = getChainColor(p.store_id.split('_')[0]);
+          return `
+            <div class="store-price-row ${isCheapest ? 'cheapest-row' : ''}">
+              <div class="store-info-col">
+                <span class="chain-dot" style="background: ${chainColor};"></span>
+                <span class="store-name-text">${p.chain_name} (${p.store_name})</span>
+                <span class="store-dist-text">(${p.distance.toFixed(1)} ק"מ)</span>
+              </div>
+              <div class="price-col">
+                ${isCheapest ? '<span class="cheapest-tag">הכי זול</span>' : ''}
+                <span class="price-val">₪${p.price.toFixed(2)}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+
         pricingHtml = `
           <div class="product-pricing-box">
             <div class="unit-price-badge">
-              <span class="label">מחיר ל-100 ${prod.unit_of_measure}:</span>
+              <span class="label">מחיר ל-100 ${prod.unit_of_measure || 'יחידה'}:</span>
               <span class="value">₪${prod.minUnitPrice.toFixed(2)}</span>
             </div>
-            <div class="cheapest-store-row">
-              <span class="store-name">${prod.cheapestPriceRecord.chain_name} (${prod.cheapestPriceRecord.store_name})</span>
-              <span class="price">₪${prod.cheapestPriceRecord.price.toFixed(2)}</span>
+            <div class="store-prices-list">
+              ${pricesListHtml}
             </div>
           </div>
         `;
       } else {
         pricingHtml = `
           <div class="product-pricing-box" style="text-align: center; color: var(--text-muted); font-size: 11px;">
-            אין מחיר זמין כרגע ברשתות
+            אין מחיר זמין בסניפים הקרובים
           </div>
         `;
       }
@@ -290,7 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="product-meta">
           <span class="product-brand-tag">${prod.brand} | ${prod.manufacturer}</span>
           <h4 class="product-title">${prod.name}</h4>
-          <span class="product-weight">גודל: ${prod.unit_qty} ${prod.unit_of_measure} | ברקוד: ${prod.barcode}</span>
+          <span class="product-weight">גודל: ${prod.unit_qty} ${prod.unit_of_measure || 'יחידה'} | ברקוד: ${prod.barcode}</span>
         </div>
         
         ${pricingHtml}
@@ -379,6 +474,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Slider events
   maxDistanceSlider.addEventListener('input', () => {
     distanceValSpan.innerText = `${maxDistanceSlider.value} ק"מ`;
+    renderAllNearbyStoresOnMap();
+  });
+
+  maxDistanceSlider.addEventListener('change', () => {
+    const q = productSearchInput.value.trim();
+    if (q) searchProducts(q);
   });
 
   function getChainNameHebrew(id) {
@@ -497,14 +598,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // 2. Identify selected user location coordinates
       const locKey = userLocationSelect.value;
-      const userLoc = locationCoordinates[locKey] || locationCoordinates.jerusalem;
+      const userLoc = locationCoordinates[locKey] || locationCoordinates.custom || locationCoordinates.jerusalem;
       const maxDistLimit = parseFloat(maxDistanceSlider.value);
 
       // 3. Filter stores within driving radius limit
-      const nearStores = allStores.map(store => {
-        const dist = calculateDistance(userLoc.lat, userLoc.lon, store.latitude, store.longitude);
-        return { ...store, distance: dist };
-      }).filter(store => store.distance <= maxDistLimit);
+      const nearStores = getNearbyStores();
 
       if (nearStores.length === 0) {
         routesContainer.innerHTML = `
