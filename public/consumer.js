@@ -19,10 +19,16 @@ document.addEventListener('DOMContentLoaded', () => {
   let cart = []; // Array of { barcode, name, qty }
   let allStores = []; // Store catalog loaded from server
   
+  // Leaflet Map State
+  let map;
+  let userMarker;
+  let routeLines = [];
+  let mapStoreMarkers = [];
+
   // Coordinate dictionary
   const locationCoordinates = {
-    tel_aviv: { lat: 32.0800, lon: 34.7800, name: 'תל אביב' },
     jerusalem: { lat: 31.7680, lon: 35.2100, name: 'ירושלים' },
+    tel_aviv: { lat: 32.0800, lon: 34.7800, name: 'תל אביב' },
     rehovot: { lat: 31.9000, lon: 34.8100, name: 'רחובות' },
     haifa: { lat: 32.8000, lon: 35.0000, name: 'חיפה' }
   };
@@ -39,6 +45,149 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('Failed to load stores:', err);
     }
   }
+
+  // Initialize Interactive Map
+  function initMap() {
+    const defaultCoords = locationCoordinates.jerusalem;
+    
+    // Create Leaflet Map (disable zoom controls to fit compact UI)
+    map = L.map('shopper-map', {
+      zoomControl: true,
+      attributionControl: false
+    }).setView([defaultCoords.lat, defaultCoords.lon], 12);
+
+    // Use dark mode theme tiles (matches dashboard style)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    // Home location icon style
+    const homeIcon = L.divIcon({
+      className: 'map-home-pin',
+      html: `<div style="background: var(--accent-cyan); width: 14px; height: 14px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 12px var(--accent-cyan);"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7]
+    });
+
+    userMarker = L.marker([defaultCoords.lat, defaultCoords.lon], { icon: homeIcon }).addTo(map);
+
+    // Map click handler: updates home position
+    map.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      updateStartLocation(lat, lng, true);
+    });
+  }
+
+  // Sync selector/map interactions
+  function updateStartLocation(lat, lng, isFromMapClick = false) {
+    userMarker.setLatLng([lat, lng]);
+    
+    if (isFromMapClick) {
+      let customOpt = document.getElementById('custom-location-option');
+      if (!customOpt) {
+        customOpt = document.createElement('option');
+        customOpt.id = 'custom-location-option';
+        customOpt.value = 'custom';
+        customOpt.innerText = '📍 מיקום מסומן במפה';
+        userLocationSelect.appendChild(customOpt);
+      }
+      userLocationSelect.value = 'custom';
+      locationCoordinates.custom = { lat, lon: lng, name: 'מיקום מפה מותאם' };
+    } else {
+      map.setView([lat, lng], 12);
+    }
+  }
+
+  userLocationSelect.addEventListener('change', () => {
+    const locKey = userLocationSelect.value;
+    if (locKey !== 'custom' && locationCoordinates[locKey]) {
+      const coords = locationCoordinates[locKey];
+      updateStartLocation(coords.lat, coords.lon, false);
+    }
+  });
+
+  // Address Geocoding Search
+  const addressInput = document.getElementById('address-input');
+  const lookupAddressBtn = document.getElementById('lookup-address-btn');
+  const gpsLocationBtn = document.getElementById('gps-location-btn');
+
+  async function lookupAddress() {
+    const query = addressInput.value.trim();
+    if (!query) return;
+
+    lookupAddressBtn.innerText = 'מחפש...';
+    lookupAddressBtn.disabled = true;
+
+    try {
+      // Free open-source Nominatim geocoding engine (supports Hebrew queries)
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+      const data = await res.json();
+      
+      if (data && data.length > 0) {
+        const found = data[0];
+        const lat = parseFloat(found.lat);
+        const lon = parseFloat(found.lon);
+        
+        // Update user start position
+        updateStartLocation(lat, lon, true);
+        map.setView([lat, lon], 14); // Zoom in closer for specific address
+        
+        // Visual feedback
+        addressInput.style.borderColor = 'var(--accent-green)';
+        setTimeout(() => addressInput.style.borderColor = 'var(--border-color)', 2000);
+      } else {
+        alert('לא נמצא מיקום עבור הכתובת שהוזנה. נסה להוסיף עיר (לדוגמה: "הרצל 10, תל אביב")');
+      }
+    } catch (err) {
+      console.error('Geocoding error:', err);
+      alert('שגיאה בחיפוש הכתובת. בדוק את החיבור לרשת.');
+    } finally {
+      lookupAddressBtn.innerText = 'חפש';
+      lookupAddressBtn.disabled = false;
+    }
+  }
+
+  lookupAddressBtn.addEventListener('click', lookupAddress);
+  addressInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') lookupAddress();
+  });
+
+  // GPS Geolocation Detector
+  gpsLocationBtn.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      alert('דפדפן זה אינו תומך בזיהוי מיקום GPS.');
+      return;
+    }
+
+    gpsLocationBtn.innerHTML = '<span class="spinner" style="width:12px; height:12px; border-color:var(--accent-cyan); border-top-color:transparent;"></span> מזהה...';
+    gpsLocationBtn.disabled = true;
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        
+        updateStartLocation(lat, lon, true);
+        map.setView([lat, lon], 14);
+
+        gpsLocationBtn.innerHTML = '<i data-lucide="check" style="width: 12px; height: 12px; color:var(--accent-green)"></i> זוהה!';
+        lucide.createIcons();
+        setTimeout(() => {
+          gpsLocationBtn.innerHTML = '<i data-lucide="locate" style="width: 12px; height: 12px;"></i> זהה מיקום (GPS)';
+          gpsLocationBtn.disabled = false;
+          lucide.createIcons();
+        }, 3000);
+      },
+      (error) => {
+        console.error('GPS error:', error);
+        alert('לא ניתן לזהות מיקום. ודא שאישרת הרשאות מיקום בדפדפן.');
+        gpsLocationBtn.innerHTML = '<i data-lucide="locate" style="width: 12px; height: 12px;"></i> זהה מיקום (GPS)';
+        gpsLocationBtn.disabled = false;
+        lucide.createIcons();
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  });
 
   // Haversine Distance Calculator (km)
   function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -92,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return {
           ...prod,
           cheapestPriceRecord: cheapestRecord,
-          minUnitPrice: minUnitPrice === Infinity ? 999999 : minUnitPrice // Fallback high price if no pricing available
+          minUnitPrice: minUnitPrice === Infinity ? 999999 : minUnitPrice
         };
       });
 
@@ -103,7 +252,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } catch (err) {
       console.error(err);
-      searchResults.innerHTML = '<div class="loading-placeholder">שגיאה בטעינת תוצאות החיפוש</div>';
+      searchResults.innerHTML = '<div class="loading-placeholder">שגיאה בביצוע החיפוש</div>';
     }
   }
 
@@ -243,6 +392,82 @@ document.addEventListener('DOMContentLoaded', () => {
     return names[id] || id;
   }
 
+  function getChainColor(id) {
+    const colors = {
+      shufersal: '#ef4444',
+      rami_levy: '#f59e0b',
+      yohananof: '#8b5cf6',
+      victory: '#06b6d4',
+      tiv_taam: '#10b981'
+    };
+    return colors[id] || '#ffffff';
+  }
+
+  // Draw optimized route on Leaflet map
+  function drawRouteOnMap(route, userLoc) {
+    // Clear existing route layers
+    routeLines.forEach(l => map.removeLayer(l));
+    mapStoreMarkers.forEach(m => map.removeLayer(m));
+    routeLines = [];
+    mapStoreMarkers = [];
+
+    if (!route || route.length === 0) return;
+
+    // Compile coordinate array: Home -> Store 1 -> Store 2 -> Home
+    const coords = [[userLoc.lat, userLoc.lon]];
+    
+    route.forEach((store, idx) => {
+      coords.push([store.latitude, store.longitude]);
+
+      // Add a custom marker for the store
+      const storeColor = getChainColor(store.chain_id);
+      const storeIcon = L.divIcon({
+        className: 'map-store-pin',
+        html: `<div style="background: ${storeColor}; width: 12px; height: 12px; border: 2px solid white; border-radius: 4px; box-shadow: 0 0 10px ${storeColor};"></div>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6]
+      });
+
+      const itemsBought = currentOptimalPurchases[store.id] || [];
+      const itemsListStr = itemsBought.map(i => `${i.name} (x${i.qty})`).join('<br>');
+
+      const marker = L.marker([store.latitude, store.longitude], { icon: storeIcon })
+        .bindPopup(`
+          <div style="direction:rtl; text-align:right; font-family:'Rubik'; font-size:12px; color:var(--text-primary);">
+            <strong>תחנה ${idx + 1}: ${getChainNameHebrew(store.chain_id)} (${store.name})</strong><br>
+            <span style="color:var(--text-secondary); font-size:11px;">פריטים לקנייה:</span><br>
+            <span style="color:var(--accent-cyan); font-weight:500;">${itemsListStr || 'אין פריטים'}</span>
+          </div>
+        `, { closeButton: false })
+        .addTo(map);
+      
+      mapStoreMarkers.push(marker);
+    });
+
+    coords.push([userLoc.lat, userLoc.lon]);
+
+    // Draw the polyline routing loop
+    const polyline = L.polyline(coords, {
+      color: 'var(--accent-cyan)',
+      weight: 3,
+      opacity: 0.7,
+      dashArray: '5, 8'
+    }).addTo(map);
+
+    routeLines.push(polyline);
+
+    // Fit map bounds to contain user home and all stores
+    const bounds = L.latLngBounds(coords);
+    map.fitBounds(bounds, { padding: [30, 30] });
+
+    // Open first store popup for clarity
+    if (mapStoreMarkers.length > 0) {
+      mapStoreMarkers[0].openPopup();
+    }
+  }
+
+  let currentOptimalPurchases = {}; // Global reference for map popups
+
   // Smart Cart Routing Optimization Algorithm
   optimizeBtn.addEventListener('click', async () => {
     if (cart.length === 0) {
@@ -272,7 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // 2. Identify selected user location coordinates
       const locKey = userLocationSelect.value;
-      const userLoc = locationCoordinates[locKey];
+      const userLoc = locationCoordinates[locKey] || locationCoordinates.jerusalem;
       const maxDistLimit = parseFloat(maxDistanceSlider.value);
 
       // 3. Filter stores within driving radius limit
@@ -479,7 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="route-step">
               <div class="route-step-header">
                 <span class="route-step-store">תחנה ${stepIdx + 1}: ${getChainNameHebrew(store.chain_id)} (${store.name})</span>
-                <span class="route-step-dist">${store.distance.toFixed(1)} ק"מ מהבית</span>
+                <span class="route-step-dist">${store.distance.toFixed(1)} ק"מ</span>
               </div>
               <div class="route-step-items">
                 <strong>פריטים:</strong> ${itemsListStr}
@@ -497,6 +722,12 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           `;
         }
+
+        // Generate Google Maps multi-stop navigation URL
+        const originCoords = `${userLoc.lat},${userLoc.lon}`;
+        const destCoords = originCoords; // Loop back home
+        const waypointsStr = opt.route.map(store => `${store.latitude},${store.longitude}`).join('|');
+        const gmapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${originCoords}&destination=${destCoords}&waypoints=${encodeURIComponent(waypointsStr)}&travelmode=driving`;
 
         card.innerHTML = `
           <div class="route-header">
@@ -519,14 +750,40 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="total-distance-label">
               <i data-lucide="route" style="width:14px; height:14px;"></i>
               מסלול מעגלי: <strong>${opt.totalDistance.toFixed(1)} ק"מ</strong>
-              <span style="font-size:10px; color:var(--text-muted);">(עלות דלק: ₪${opt.travelCost.toFixed(2)})</span>
+              <span style="font-size:10px; color:var(--text-muted);">(דלק: ₪${opt.travelCost.toFixed(2)})</span>
             </div>
             <div class="total-price-label">
-              מחיר סל כולל: 
-              <span class="total-price-val">₪${opt.totalCost.toFixed(2)}</span>
+              סך הכל: <span class="total-price-val">₪${opt.totalCost.toFixed(2)}</span>
             </div>
           </div>
+
+          <div class="route-actions" style="margin-top: 8px; display: flex; gap: 8px;">
+            <a href="${gmapsUrl}" target="_blank" class="nav-gmaps-btn" style="flex: 1; text-align: center; text-decoration: none; padding: 8px 12px; font-size: 12px; font-weight: 600; border-radius: 6px; display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.2); transition: all 0.2s;">
+              <i data-lucide="map-pin" style="width:14px; height:14px;"></i>
+              פתח ניווט ב-Google Maps
+            </a>
+            <button class="btn-draw-map" style="flex: 1; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.05); color: var(--text-primary); border-radius: 6px; font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
+              <i data-lucide="map" style="width:14px; height:14px;"></i>
+              הצג מסלול במפה
+            </button>
+          </div>
         `;
+
+        // Bind interactive events
+        card.querySelector('.btn-draw-map').addEventListener('click', () => {
+          currentOptimalPurchases = opt.purchases;
+          drawRouteOnMap(opt.route, userLoc);
+          
+          // Add border highlight to active card
+          document.querySelectorAll('.route-card').forEach(c => c.style.borderColor = 'var(--border-color)');
+          card.style.borderColor = 'var(--accent-cyan)';
+        });
+
+        // Trigger mapping default for the cheapest option
+        if (isOverallCheapest) {
+          currentOptimalPurchases = opt.purchases;
+          drawRouteOnMap(opt.route, userLoc);
+        }
 
         routesContainer.appendChild(card);
       });
@@ -550,5 +807,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Init
   loadStores();
+  initMap();
   searchProducts('קוטג');
 });
