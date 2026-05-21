@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>שקוף סל | Israeli Supermarket Data Portal</title>
+  <meta name="description" content="מאגר נתוני שקיפות מחירים של רשתות המזון בישראל - גישת מפתחים נוחה וישירה">
+  <!-- Outfit Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Rubik:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="glow-bg"></div>
+  
+  <div class="app-container">
+    <!-- Header -->
+    <header class="main-header">
+      <div class="header-logo">
+        <div class="logo-icon">
+          <i data-lucide="database"></i>
+        </div>
+        <div class="logo-text">
+          <h1>שקוף סל <span>/ API</span></h1>
+          <p>Israeli Supermarket Price Data for Developers</p>
+        </div>
+      </div>
+      <div class="header-actions" style="display: flex; align-items: center; gap: 16px;">
+        <a href="consumer.html" class="glow-btn" style="text-decoration: none; padding: 8px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple)); border: none; color: white; border-radius: 8px; box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);">
+          <i data-lucide="navigation" style="width:14px; height:14px;"></i>
+          למעבר לאתר הצרכן (מחשב מסלול)
+        </a>
+        <div class="header-status">
+          <span class="status-indicator online"></span>
+          <span class="status-label">כל המערכות פועלות כסדרן</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Key Metrics Grid -->
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-info">
+          <span class="metric-title">מוצרים מקוטלגים</span>
+          <h3 class="metric-value" id="metric-products">241,894</h3>
+        </div>
+        <div class="metric-icon cyan">
+          <i data-lucide="shopping-bag"></i>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-info">
+          <span class="metric-title">סניפים פעילים</span>
+          <h3 class="metric-value" id="metric-stores">1,245</h3>
+        </div>
+        <div class="metric-icon purple">
+          <i data-lucide="map-pin"></i>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-info">
+          <span class="metric-title">עדכוני מחירים היום</span>
+          <h3 class="metric-value" id="metric-updates">1,942,083</h3>
+        </div>
+        <div class="metric-icon violet">
+          <i data-lucide="trending-up"></i>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-info">
+          <span class="metric-title">נפח קבצים יומי</span>
+          <h3 class="metric-value" id="metric-size">4.2 GB</h3>
+        </div>
+        <div class="metric-icon green">
+          <i data-lucide="hard-drive"></i>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Content Area -->
+    <main class="dashboard-main">
+      
+      <!-- Right/Top Panel: Scrapers -->
+      <section class="panel scrapers-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <i data-lucide="refresh-cw"></i>
+            <h2>מצב סנכרון רשתות</h2>
+          </div>
+          <span class="panel-subtitle">מעקב וסנכרון בזמן אמת של קובצי שקיפות המחירים</span>
+        </div>
+        
+        <div class="scrapers-list" id="scrapers-container">
+          <!-- Populated dynamically via JS -->
+          <div class="loading-placeholder">טוען נתוני רשתות...</div>
+        </div>
+      </section>
+
+      <!-- Left Panel: Interactive Explorer & Search -->
+      <section class="panel explorer-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <i data-lucide="search"></i>
+            <h2>חיפוש מוצרים והשוואת מחירים (דמו)</h2>
+          </div>
+          <span class="panel-subtitle">חפש פריטים במאגר הלאומי וצפה בהבדלים בין הרשתות</span>
+        </div>
+
+        <div class="search-bar-wrapper">
+          <input type="text" id="product-search" placeholder="חפש מוצר (לדוגמה: קוטג', במבה, מילקי...)" value="קוטג'">
+          <button id="search-btn"><i data-lucide="search"></i> חפש</button>
+        </div>
+
+        <div class="explorer-results" id="search-results">
+          <!-- Populated dynamically via JS -->
+        </div>
+
+        <!-- Price Comparison Modal/Detail View -->
+        <div class="price-comparison-box hidden" id="comparison-box">
+          <div class="comparison-header">
+            <h3 id="comp-product-name">שם המוצר</h3>
+            <span id="comp-product-barcode" class="badge">ברקוד: -</span>
+          </div>
+          <div class="comparison-table-wrapper">
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th>רשת</th>
+                  <th>סניף</th>
+                  <th>מחיר</th>
+                  <th>מחיר ליחידה</th>
+                  <th>עודכן לאחרונה</th>
+                </tr>
+              </thead>
+              <tbody id="comparison-body">
+                <!-- Prices populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+      
+    </main>
+
+    <!-- Bottom Developer Area (API Playground & Snippets) -->
+    <section class="developer-section">
+      <!-- Playground -->
+      <div class="panel api-playground">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <i data-lucide="play-circle"></i>
+            <h2>API Playground</h2>
+          </div>
+          <span class="panel-subtitle">בדוק את ה-API ישירות מהדפדפן</span>
+        </div>
+        
+        <div class="playground-controls">
+          <div class="control-row">
+            <span class="method-tag GET">GET</span>
+            <select id="api-endpoint-selector">
+              <option value="/api/v1/chains">/api/v1/chains (רשימת רשתות)</option>
+              <option value="/api/v1/stores">/api/v1/stores (רשימת סניפים)</option>
+              <option value="/api/v1/products">/api/v1/products (קטלוג מוצרים)</option>
+              <option value="/api/v1/prices">/api/v1/prices (שאילתת מחירים)</option>
+              <option value="/api/v1/scraper-status">/api/v1/scraper-status (מצב סורקים)</option>
+            </select>
+          </div>
+          
+          <div class="params-editor" id="params-container">
+            <!-- Params dynamically generated depending on selection -->
+          </div>
+
+          <button id="send-api-btn" class="glow-btn">
+            <i data-lucide="send"></i> שלח בקשה
+          </button>
+        </div>
+
+        <div class="response-viewer">
+          <div class="response-header">
+            <span>Response Code: <strong id="res-status" class="status-code">200 OK</strong></span>
+            <button id="copy-response" class="icon-btn" title="העתק פלט"><i data-lucide="copy"></i></button>
+          </div>
+          <pre><code id="response-output">{
+  "status": "waiting_for_request"
+}</code></pre>
+        </div>
+      </div>
+
+      <!-- Code Snippets -->
+      <div class="panel code-snippets">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <i data-lucide="code"></i>
+            <h2>אינטגרציה מהירה למפתחים</h2>
+          </div>
+          <span class="panel-subtitle">דוגמאות קוד לשימוש מהיר ביישומים שלך</span>
+        </div>
+        
+        <div class="tabs-container">
+          <div class="snippet-tabs">
+            <button class="tab-btn active" data-lang="js">JavaScript (Fetch)</button>
+            <button class="tab-btn" data-lang="py">Python (Requests)</button>
+            <button class="tab-btn" data-lang="curl">cURL</button>
+          </div>
+          
+          <div class="snippet-content">
+            <pre class="snippet-pre active" id="snippet-js"><code>// Fetch products from the Supermarket Data API
+const query = 'קוטג';
+fetch(`http://localhost:3000/api/v1/products?query=${encodeURIComponent(query)}`)
+  .then(response => response.json())
+  .then(data => {
+    console.log(`Found ${data.count} items matching "${query}":`, data.data);
+  })
+  .catch(err => console.error('Error fetching prices:', err));</code></pre>
+            
+            <pre class="snippet-pre" id="snippet-py"><code># Python 3 code to search products
+import requests
+import urllib.parse
+
+query = 'קוטג'
+url = f'http://localhost:3000/api/v1/products?query={urllib.parse.quote(query)}'
+
+response = requests.get(url)
+if response.status_code == 200:
+    data = response.json()
+    print(f"Found {data['count']} items:")
+    for item in data['data']:
+        print(f"- {item['name']} ({item['barcode']})")</code></pre>
+            
+            <pre class="snippet-pre" id="snippet-curl"><code># Search for products by name or barcode
+curl -X GET "http://localhost:3000/api/v1/products?query=%D7%A7%D7%95%D7%98%D7%92'" \
+     -H "Accept: application/json"</code></pre>
+          </div>
+        </div>
+
+        <div class="downloads-panel">
+          <h3><i data-lucide="download-cloud"></i> הורדת מאגרי נתונים יומיים (Dumps)</h3>
+          <p>במקום תשאול API חוזר, ניתן להוריד קובץ SQLite מלא ומאורגן לשימוש מקומי.</p>
+          <div class="download-buttons">
+            <a href="#" class="download-link"><i data-lucide="file-database"></i> sqlite_prices_latest.db (14.2 MB)</a>
+            <a href="#" class="download-link"><i data-lucide="file-text"></i> products_catalog.json (8.4 MB)</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="main-footer">
+      <p>© 2026 שקוף סל (Open Supermarket Data Project Israel). פותח באהבה עבור קהילת המפתחים בישראל.</p>
+      <p>כל הנתונים נשאבים מאתרי הרשתות הקמעונאיות בכפוף לחוק המזון.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

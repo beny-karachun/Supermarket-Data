@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>שקוף סל לצרכן | מחשב מסלול קניות אופטימלי</title>
+  <!-- Google Fonts: Outfit & Rubik -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Rubik:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="consumer.css">
+</head>
+<body>
+  <div class="glow-bg"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="main-header">
+      <div class="header-logo">
+        <div class="logo-icon">
+          <i data-lucide="shopping-cart"></i>
+        </div>
+        <div class="logo-text">
+          <h1>שקוף סל <span>/ צרכנות חכמה</span></h1>
+          <p>השוואת סלים, מיקומים וניתוב נסיעה אופטימלי בין רשתות המזון</p>
+        </div>
+      </div>
+      
+      <div class="header-actions">
+        <a href="index.html" class="dev-portal-btn">
+          <i data-lucide="code-2"></i>
+          פורטל מפתחים / API
+        </a>
+      </div>
+    </header>
+
+    <!-- App Main Grid Layout -->
+    <div class="consumer-grid">
+      
+      <!-- Right Side: Search and Results -->
+      <main class="search-section">
+        <div class="panel">
+          <div class="panel-header-search">
+            <h2><i data-lucide="search"></i> חיפוש מוצרים והשוואת מחירים</h2>
+            <p class="panel-subtitle">חפש מוצרים להוספה לעגלת הקניות. התוצאות ממוינות אוטומטית לפי המחיר הזול ביותר ל-100 גרם/יחידה.</p>
+          </div>
+          
+          <div class="search-bar-row">
+            <div class="search-input-wrapper">
+              <i data-lucide="search" class="search-icon-inside"></i>
+              <input type="text" id="product-search" placeholder="חפש מוצר (לדוגמה: קוטג', במבה, קפה...)" value="קוטג">
+            </div>
+            <button id="search-btn" class="search-button">חפש</button>
+          </div>
+          
+          <div class="sorting-indicator">
+            <i data-lucide="arrow-down-narrow-wide"></i>
+            <span>ממוין לפי: <strong>הכי זול ל-100 גרם / מ"ל (יחידת מידה)</strong></span>
+          </div>
+
+          <!-- Product Results Grid -->
+          <div class="products-grid" id="search-results">
+            <!-- Dynamically populated product cards -->
+          </div>
+        </div>
+      </main>
+
+      <!-- Left Side: Shopping Cart & Route Optimizer -->
+      <aside class="sidebar-section">
+        <!-- Cart Card -->
+        <div class="panel cart-panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <i data-lucide="shopping-bag"></i>
+              <h3>עגלת הקניות שלי</h3>
+            </div>
+          </div>
+          
+          <div class="cart-box">
+            <p class="empty-cart-msg" id="empty-cart-msg">העגלה ריקה. חפש מוצרים והוסף אותם כדי להתחיל.</p>
+            <ul class="cart-list" id="cart-list">
+              <!-- Dynamically populated cart items -->
+            </ul>
+          </div>
+
+          <div class="user-config-area">
+            <div class="config-row">
+              <label for="user-location"><i data-lucide="navigation"></i> נקודת המוצא שלי (בית):</label>
+              <select id="user-location">
+                <option value="jerusalem">ירושלים (מרכז/תלפיות)</option>
+                <option value="tel_aviv">תל אביב (מרכז)</option>
+                <option value="rehovot">רחובות (פארק המדע)</option>
+                <option value="haifa">חיפה (הנביאים)</option>
+              </select>
+            </div>
+            
+            <div class="config-row">
+              <div class="slider-header">
+                <label for="max-distance"><i data-lucide="milestone"></i> מרחק נסיעה מקסימלי:</label>
+                <span id="distance-val">10 ק"מ</span>
+              </div>
+              <input type="range" id="max-distance" min="2" max="50" value="10">
+            </div>
+            
+            <button id="optimize-btn" class="optimize-btn">
+              <i data-lucide="git-branch"></i> חשב מסלול קניות אופטימלי
+            </button>
+          </div>
+        </div>
+
+        <!-- Optimized Routes Card -->
+        <div class="panel routes-panel">
+          <div class="panel-header">
+            <div class="panel-title-group">
+              <i data-lucide="compass"></i>
+              <h3>הצעות מסלול מותאמות</h3>
+            </div>
+          </div>
+          
+          <div class="routes-container" id="routes-container">
+            <div class="routing-placeholder-msg">
+              <i data-lucide="info"></i>
+              הוסף מוצרים לעגלה ולחץ על "חשב מסלול אופטימלי"
+            </div>
+          </div>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+
+  <script src="consumer.js"></script>
+</body>
+</html>
