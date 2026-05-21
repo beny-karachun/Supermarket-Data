@@ -277,8 +277,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // Fetch prices for all matched products in parallel
-      const productList = data.data;
+      // Limit to first 100 matches to prevent parallel request flood in browser
+      const productList = data.data.slice(0, 100);
       const pricePromises = productList.map(p => 
         fetch(`/api/v1/prices?barcode=${p.barcode}`).then(r => r.json())
       );
