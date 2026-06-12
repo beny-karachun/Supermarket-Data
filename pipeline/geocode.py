@@ -176,34 +176,56 @@ class GeoResolver:
 
     # ----- coordinates -----
 
-    def _nominatim(self, query):
-        """Rate-limited Nominatim lookup; returns (lat, lon) or None."""
+    def _nominatim_search(self, query, limit=1):
+        """Rate-limited Nominatim lookup; returns the raw result list."""
         wait = 1.1 - (time.monotonic() - self._last_request)
         if wait > 0:
             time.sleep(wait)
         self._last_request = time.monotonic()
         url = NOMINATIM_URL + '?' + urllib.parse.urlencode(
-            {'q': query, 'format': 'json', 'limit': 1, 'countrycodes': 'il'})
+            {'q': query, 'format': 'json', 'limit': limit, 'countrycodes': 'il'})
         try:
             req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
             with urllib.request.urlopen(req, timeout=15) as resp:
-                results = json.load(resp)
-            if results:
-                return float(results[0]['lat']), float(results[0]['lon'])
+                return json.load(resp) or []
         except Exception:
-            pass
+            return []
+
+    def _nominatim(self, query):
+        """Rate-limited Nominatim lookup; returns (lat, lon) or None."""
+        results = self._nominatim_search(query, limit=1)
+        if results:
+            return float(results[0]['lat']), float(results[0]['lon'])
         return None
 
+    _PLACE_NODE_TYPES = {'city', 'town', 'village', 'hamlet', 'suburb', 'locality'}
+
     def city_coords(self, city_name):
+        """Coords of a locality's BUILT-UP center, not its municipal polygon.
+
+        Boundary relations give the polygon's geometric centroid, which for
+        cities with sprawling jurisdictions (נוף הגליל wraps around Nazareth
+        and includes forest) lands kilometers into open country. OSM place
+        NODES mark the actual town center — prefer them. Cache namespace is
+        'cityv2:' so polygon-centroid entries from before this fix are dead.
+        """
         if not city_name:
             return None
         if city_name in CITY_COORDS:
             return CITY_COORDS[city_name]
-        key = f'city:{city_name}'
+        key = f'cityv2:{city_name}'
         if key in self.cache:
             hit = self.cache[key]
             return tuple(hit) if hit else None
-        coords = self._nominatim(f'{city_name}, ישראל')
+        results = self._nominatim_search(f'{city_name}, ישראל', limit=5)
+        coords = None
+        for r in results:
+            if r.get('osm_type') == 'node' and r.get('class') == 'place' \
+                    and r.get('type') in self._PLACE_NODE_TYPES:
+                coords = (float(r['lat']), float(r['lon']))
+                break
+        if coords is None and results:
+            coords = (float(results[0]['lat']), float(results[0]['lon']))
         self.cache[key] = list(coords) if coords else None
         return coords
 
@@ -268,9 +290,8 @@ def backfill(db_path, budget, revalidate=False):
     conn = get_conn(db_path)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        """SELECT id, address, city FROM stores
-           WHERE TRIM(COALESCE(address, '')) != ''
-             AND (latitude IS NULL OR geo_precision IS NULL OR geo_precision = 'city')
+        """SELECT id, name, address, city FROM stores
+           WHERE latitude IS NULL OR geo_precision IS NULL OR geo_precision = 'city'
            ORDER BY id""").fetchall()
     print(f'{len(rows)} stores eligible for address geocoding (budget {budget})')
 
@@ -280,6 +301,15 @@ def backfill(db_path, budget, revalidate=False):
             print(f'budget exhausted after {i - 1} stores')
             break
         coords = geo.address_coords(row['address'], row['city'])
+        if not coords:
+            # Branch names usually ARE the venue ("צים סנטר נוף הגליל") or
+            # carry it in parentheses — malls and centers geocode well where
+            # the street address is truncated or missing. Same validation.
+            name = row['name'] or ''
+            paren = re.search(r'\(([^)]{4,})\)', name)
+            venue = paren.group(1) if paren else name
+            if len(venue.strip()) >= 4:
+                coords = geo.address_coords(venue, row['city'])
         if coords:
             conn.execute(
                 "UPDATE stores SET latitude = ?, longitude = ?, geo_precision = 'address' WHERE id = ?",
@@ -291,6 +321,32 @@ def backfill(db_path, budget, revalidate=False):
             conn.commit()
             geo.save()
             print(f'  {i}/{len(rows)} processed — {upgraded} upgraded, {missed} no validated hit')
+
+    # Remaining city-precision stores sit on whatever centroid the v1 cache
+    # had — possibly a municipal-polygon centroid in open country. Re-place
+    # them on the corrected (place-node) city centers.
+    moved = rescued = 0
+    for row in conn.execute(
+            """SELECT id, city, latitude, longitude FROM stores
+               WHERE geo_precision = 'city'""").fetchall():
+        centroid = geo.city_coords(row['city'])
+        if centroid and _haversine_km(centroid[0], centroid[1],
+                                      row['latitude'], row['longitude']) > 0.25:
+            conn.execute("UPDATE stores SET latitude = ?, longitude = ? WHERE id = ?",
+                         (centroid[0], centroid[1], row['id']))
+            moved += 1
+
+    # Unplaced stores whose city failed to resolve before the place-node fix
+    # get one more chance at a centroid.
+    for row in conn.execute(
+            """SELECT id, city FROM stores
+               WHERE latitude IS NULL AND TRIM(COALESCE(city, '')) != ''""").fetchall():
+        centroid = geo.city_coords(row['city'])
+        if centroid:
+            conn.execute(
+                "UPDATE stores SET latitude = ?, longitude = ?, geo_precision = 'city' WHERE id = ?",
+                (centroid[0], centroid[1], row['id']))
+            rescued += 1
 
     demoted = 0
     if revalidate:
@@ -308,10 +364,11 @@ def backfill(db_path, budget, revalidate=False):
 
     conn.commit()
     geo.save()
-    counts = dict(conn.execute(
-        "SELECT COALESCE(geo_precision, 'unplaced'), COUNT(*) FROM stores GROUP BY 1").fetchall())
+    counts = {row[0]: row[1] for row in conn.execute(
+        "SELECT COALESCE(geo_precision, 'unplaced'), COUNT(*) FROM stores GROUP BY 1").fetchall()}
     conn.close()
     print(f'done: {upgraded} upgraded to address precision, {missed} unresolved, '
+          f'{moved} re-centered on corrected city centroids, {rescued} rescued from unplaced, '
           f'{demoted} demoted as implausible')
     print(f'store precision now: {counts}')
 

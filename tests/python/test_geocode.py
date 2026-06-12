@@ -50,3 +50,39 @@ class TestAddressValidation:
         geo = GeoResolver(data_dir=str(tmp_path), budget=0)
         geo._nominatim = lambda q: (32.09, 34.78)
         assert geo.address_coords('בן יהודה 195', 'תל אביב') is None
+
+
+class TestCityCentroid:
+    """City coords must be the built-up center (OSM place node), not the
+    municipal polygon centroid — Nof HaGalil's polygon centroid is forest."""
+
+    def test_place_node_preferred_over_boundary(self, tmp_path):
+        geo = GeoResolver(data_dir=str(tmp_path), budget=5)
+        geo._nominatim_search = lambda q, limit=1: [
+            {'osm_type': 'relation', 'class': 'boundary', 'type': 'administrative',
+             'lat': '32.69', 'lon': '35.36'},
+            {'osm_type': 'node', 'class': 'place', 'type': 'town',
+             'lat': '32.708', 'lon': '35.317'},
+        ]
+        assert geo.city_coords('נוף הגליל') == (32.708, 35.317)
+
+    def test_boundary_fallback_when_no_place_node(self, tmp_path):
+        geo = GeoResolver(data_dir=str(tmp_path), budget=5)
+        geo._nominatim_search = lambda q, limit=1: [
+            {'osm_type': 'relation', 'class': 'boundary', 'type': 'administrative',
+             'lat': '32.69', 'lon': '35.36'},
+        ]
+        assert geo.city_coords('עיר בדיונית') == (32.69, 35.36)
+
+    def test_city_failure_cached(self, tmp_path):
+        calls = []
+        geo = GeoResolver(data_dir=str(tmp_path), budget=5)
+        geo._nominatim_search = lambda q, limit=1: calls.append(q) or []
+        assert geo.city_coords('לא קיימת') is None
+        assert geo.city_coords('לא קיימת') is None
+        assert len(calls) == 1
+
+    def test_builtin_city_needs_no_network(self, tmp_path):
+        geo = GeoResolver(data_dir=str(tmp_path), budget=0)
+        geo._nominatim_search = lambda q, limit=1: pytest.fail('network lookup attempted')
+        assert geo.city_coords('תל אביב') == (32.0853, 34.7818)
