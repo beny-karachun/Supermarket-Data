@@ -173,17 +173,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function initMap() {
     map = L.map('shopper-map', {
-      zoomControl: true,
-      attributionControl: false
+      zoomControl: true
     }).setView([currentLocation.lat, currentLocation.lon], 12);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19
+    // OSM standard tiles: the familiar look, full street detail and Hebrew
+    // labels for Israel, no API key. Attribution is required by OSM policy.
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(map);
 
     const homeIcon = L.divIcon({
       className: 'map-home-pin',
-      html: `<div style="background: var(--accent-cyan); width: 14px; height: 14px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 12px var(--accent-cyan);"></div>`,
+      html: `<div style="background: var(--accent-cyan); width: 14px; height: 14px; border: 2px solid #111827; border-radius: 50%; box-shadow: 0 0 12px var(--accent-cyan);"></div>`,
       iconSize: [14, 14],
       iconAnchor: [7, 7]
     });
@@ -317,6 +319,26 @@ document.addEventListener('DOMContentLoaded', () => {
       .sort((a, b) => a.distance - b.distance);
   }
 
+  // Square solid pin = geocoded street address; dashed circle = approximate
+  // (city centroid — the chain feed had no usable address).
+  function storeIcon(store) {
+    const color = getChainColor(store.chain_id);
+    if (store.geo_precision === 'address') {
+      return L.divIcon({
+        className: 'map-store-pin',
+        html: `<div style="background: ${color}; width: 12px; height: 12px; border: 2px solid #111827; border-radius: 4px; box-shadow: 0 0 6px ${color};"></div>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6]
+      });
+    }
+    return L.divIcon({
+      className: 'map-store-pin',
+      html: `<div style="background: ${color}b3; width: 11px; height: 11px; border: 2px dashed rgba(17,24,39,0.8); border-radius: 50%;"></div>`,
+      iconSize: [12, 12],
+      iconAnchor: [6, 6]
+    });
+  }
+
   function renderAllNearbyStoresOnMap() {
     if (!map) return;
     nearbyStoreMarkers.forEach(m => map.removeLayer(m));
@@ -326,20 +348,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const nearby = getNearbyStores();
 
-    nearby.forEach(store => {
-      const storeColor = getChainColor(store.chain_id);
-      const storeIcon = L.divIcon({
-        className: 'map-store-pin',
-        html: `<div style="background: ${storeColor}; width: 12px; height: 12px; border: 2px solid white; border-radius: 4px; box-shadow: 0 0 10px ${storeColor};"></div>`,
-        iconSize: [12, 12],
-        iconAnchor: [6, 6]
-      });
+    // City-precision stores share their city's centroid; fan identical
+    // coordinates into small rings so every pin is visible and clickable.
+    // Distances and search keep using the true coordinates.
+    const stacked = new Map();
+    nearby.forEach(s => {
+      const key = `${s.latitude.toFixed(5)},${s.longitude.toFixed(5)}`;
+      if (!stacked.has(key)) stacked.set(key, []);
+      stacked.get(key).push(s);
+    });
+    stacked.forEach(group => group.sort((a, b) => String(a.id).localeCompare(String(b.id))));
 
-      const marker = L.marker([store.latitude, store.longitude], { icon: storeIcon })
+    nearby.forEach(store => {
+      const key = `${store.latitude.toFixed(5)},${store.longitude.toFixed(5)}`;
+      const group = stacked.get(key);
+      let lat = store.latitude;
+      let lon = store.longitude;
+      if (group.length > 1) {
+        const idx = group.findIndex(s => s.id === store.id);
+        const ring = Math.floor(idx / 12) + 1;
+        const angle = (2 * Math.PI * (idx % 12)) / 12 + ring * 0.26;
+        lat += 0.0011 * ring * Math.sin(angle);
+        lon += 0.0011 * ring * Math.cos(angle) / Math.cos(lat * Math.PI / 180);
+      }
+      const approx = store.geo_precision !== 'address';
+
+      const marker = L.marker([lat, lon], { icon: storeIcon(store) })
         .bindPopup(`
           <div style="direction:rtl; text-align:right; font-family:'Rubik'; font-size:12px; color:var(--text-primary); line-height: 1.4;">
             <strong>${getChainNameHebrew(store.chain_id)} (${store.name})</strong><br>
             <span style="color:var(--text-secondary); font-size:11px;">מרחק: ${store.distance.toFixed(1)} ק"מ</span>
+            ${approx ? '<br><span style="color:var(--accent-yellow); font-size:10px;">מיקום משוער — מרכז העיר</span>' : ''}
           </div>
         `, { closeButton: false })
         .addTo(map);
@@ -857,18 +896,10 @@ document.addEventListener('DOMContentLoaded', () => {
     route.forEach((store, idx) => {
       coords.push([store.latitude, store.longitude]);
 
-      const storeColor = getChainColor(store.chain_id);
-      const storeIcon = L.divIcon({
-        className: 'map-store-pin',
-        html: `<div style="background: ${storeColor}; width: 12px; height: 12px; border: 2px solid white; border-radius: 4px; box-shadow: 0 0 10px ${storeColor};"></div>`,
-        iconSize: [12, 12],
-        iconAnchor: [6, 6]
-      });
-
       const itemsBought = currentOptimalPurchases[store.id] || [];
       const itemsListStr = itemsBought.map(i => `${i.name} (x${i.qty})`).join('<br>');
 
-      const marker = L.marker([store.latitude, store.longitude], { icon: storeIcon })
+      const marker = L.marker([store.latitude, store.longitude], { icon: storeIcon(store) })
         .bindPopup(`
           <div style="direction:rtl; text-align:right; font-family:'Rubik'; font-size:12px; color:var(--text-primary);">
             <strong>תחנה ${idx + 1}: ${getChainNameHebrew(store.chain_id)} (${store.name})</strong><br>

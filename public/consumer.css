@@ -734,10 +734,16 @@ body {
   font-size: 15px;
 }
 
-/* Leaflet Map overrides for dark theme */
+/* Leaflet Map overrides */
 .leaflet-container {
   font-family: inherit;
-  background-color: var(--bg-primary) !important;
+  /* OSM land tone so tile-loading gaps blend instead of flashing dark */
+  background-color: #e8e6e1 !important;
+}
+
+.leaflet-control-attribution {
+  font-size: 9px !important;
+  background: rgba(255, 255, 255, 0.75) !important;
 }
 
 .leaflet-bar {

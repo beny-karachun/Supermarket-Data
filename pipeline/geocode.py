@@ -11,7 +11,9 @@ so placing stores on the map takes three layers:
 All lookups (including failures) persist in data/geocode_cache.json.
 """
 import json
+import math
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -75,6 +77,40 @@ CITY_COORDS = {
 }
 
 _JUNK_CITIES = {'', '0', 'unknown', 'לא ידוע', 'none', 'null'}
+
+# An address hit further than this from its own city centroid is treated as a
+# wrong-city match (feeds truncate addresses; same-named streets exist in many
+# cities) and discarded in favor of the centroid. Covers the largest cities.
+MAX_KM_FROM_CITY = 12.0
+
+_URL_RE = re.compile(r'https?://|www\.')
+_STREET_PREFIX_RE = re.compile(r"^רח(וב)?['׳.]?\s*")
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    rlat1, rlon1, rlat2, rlon2 = map(math.radians, (lat1, lon1, lat2, lon2))
+    a = (math.sin((rlat2 - rlat1) / 2) ** 2
+         + math.cos(rlat1) * math.cos(rlat2) * math.sin((rlon2 - rlon1) / 2) ** 2)
+    return 2 * 6371 * math.asin(math.sqrt(a))
+
+
+def clean_address(address, city_name=None):
+    """Normalize a feed address for geocoding; None when it's unusable.
+
+    Feeds ship URLs, ', ישראל' suffixes, duplicated city names and רח' prefixes
+    that all hurt Nominatim hit rates.
+    """
+    addr = (address or '').strip()
+    if not addr or addr.lower() in _JUNK_CITIES or _URL_RE.search(addr):
+        return None
+    segments = [seg.strip() for seg in addr.split(',')]
+    segments = [seg for seg in segments
+                if seg and seg != 'ישראל' and (not city_name or seg != city_name)]
+    if not segments:
+        return None
+    addr = ', '.join(segments)
+    addr = _STREET_PREFIX_RE.sub('', addr)
+    return re.sub(r'\s+', ' ', addr).strip() or None
 
 
 class GeoResolver:
@@ -172,12 +208,16 @@ class GeoResolver:
         return coords
 
     def address_coords(self, address, city_name):
-        """Budgeted address-level lookup; returns (lat, lon) or None."""
-        address = (address or '').strip()
-        if not address or address.lower() in _JUNK_CITIES:
+        """Budgeted, validated address-level lookup; returns (lat, lon) or None.
+
+        Cache keys are namespaced 'addrv2:' — pre-validation entries under
+        'addr:' may be wrong-city hits and are deliberately not read.
+        """
+        addr = clean_address(address, city_name)
+        if not addr:
             return None
-        query = f'{address}, {city_name}, ישראל' if city_name else f'{address}, ישראל'
-        key = f'addr:{query}'
+        query = f'{addr}, {city_name}, ישראל' if city_name else f'{addr}, ישראל'
+        key = f'addrv2:{query}'
         if key in self.cache:
             hit = self.cache[key]
             return tuple(hit) if hit else None
@@ -185,6 +225,10 @@ class GeoResolver:
             return None
         self.budget -= 1
         coords = self._nominatim(query)
+        if coords and city_name:
+            centroid = self.city_coords(city_name)
+            if centroid and _haversine_km(*coords, *centroid) > MAX_KM_FROM_CITY:
+                coords = None  # same-named street in another city
         self.cache[key] = list(coords) if coords else None
         return coords
 
@@ -204,3 +248,88 @@ class GeoResolver:
         if city_c:
             return city_c[0], city_c[1], 'city'
         return None, None, None
+
+
+# ----- backfill CLI -----
+
+def backfill(db_path, budget, revalidate=False):
+    """Upgrade city-precision / unplaced stores to address precision.
+
+    Ingest runs keep a small geocoding budget so they finish fast; this is the
+    dedicated catch-up pass (1 req/1.1s against Nominatim — ~600 stores take
+    ~11 minutes). Progress persists in the cache, so it is safe to interrupt
+    and re-run.
+    """
+    import sqlite3
+
+    from .db import get_conn
+
+    geo = GeoResolver(budget=budget)
+    conn = get_conn(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT id, address, city FROM stores
+           WHERE TRIM(COALESCE(address, '')) != ''
+             AND (latitude IS NULL OR geo_precision IS NULL OR geo_precision = 'city')
+           ORDER BY id""").fetchall()
+    print(f'{len(rows)} stores eligible for address geocoding (budget {budget})')
+
+    upgraded = missed = 0
+    for i, row in enumerate(rows, 1):
+        if geo.budget <= 0:
+            print(f'budget exhausted after {i - 1} stores')
+            break
+        coords = geo.address_coords(row['address'], row['city'])
+        if coords:
+            conn.execute(
+                "UPDATE stores SET latitude = ?, longitude = ?, geo_precision = 'address' WHERE id = ?",
+                (coords[0], coords[1], row['id']))
+            upgraded += 1
+        else:
+            missed += 1
+        if i % 25 == 0:
+            conn.commit()
+            geo.save()
+            print(f'  {i}/{len(rows)} processed — {upgraded} upgraded, {missed} no validated hit')
+
+    demoted = 0
+    if revalidate:
+        # Address-precision rows placed before hit validation existed may be
+        # wrong-city matches; pull implausible ones back to their city centroid.
+        for row in conn.execute(
+                """SELECT id, city, latitude, longitude FROM stores
+                   WHERE geo_precision = 'address' AND latitude IS NOT NULL""").fetchall():
+            centroid = geo.city_coords(row['city'])
+            if centroid and _haversine_km(row['latitude'], row['longitude'], *centroid) > 15.0:
+                conn.execute(
+                    "UPDATE stores SET latitude = ?, longitude = ?, geo_precision = 'city' WHERE id = ?",
+                    (centroid[0], centroid[1], row['id']))
+                demoted += 1
+
+    conn.commit()
+    geo.save()
+    counts = dict(conn.execute(
+        "SELECT COALESCE(geo_precision, 'unplaced'), COUNT(*) FROM stores GROUP BY 1").fetchall())
+    conn.close()
+    print(f'done: {upgraded} upgraded to address precision, {missed} unresolved, '
+          f'{demoted} demoted as implausible')
+    print(f'store precision now: {counts}')
+
+
+def main():
+    import argparse
+
+    from .config import DB_PATH
+
+    parser = argparse.ArgumentParser(description='Geocoding backfill for store coordinates')
+    parser.add_argument('--db', default=DB_PATH)
+    parser.add_argument('--budget', type=int, default=800,
+                        help='max Nominatim lookups this run (1.1s each)')
+    parser.add_argument('--revalidate', action='store_true',
+                        help='also demote address-precision stores implausibly far from their city')
+    args = parser.parse_args()
+    backfill(args.db, args.budget, revalidate=args.revalidate)
+
+
+if __name__ == '__main__':
+    main()

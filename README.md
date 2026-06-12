@@ -112,7 +112,17 @@ chain is one line (slug → scraper enum name, Hebrew name, UI color).
   cached data.gov.il lookup and geocodes city centroids immediately;
   address-level pins refine over successive runs under `GEOCODE_BUDGET`
   (Nominatim is rate-limited to 1 req/sec). `stores.geo_precision` tracks
-  `address` vs `city`.
+  `address` vs `city`. To upgrade a freshly ingested database in one pass:
+
+  ```bash
+  .venv/bin/python -m pipeline.geocode --db data/database.db --budget 800 --revalidate
+  ```
+
+  Address hits are validated against the store's own city centroid (truncated
+  feed addresses otherwise match same-named streets in other cities);
+  `--revalidate` also demotes previously placed pins that fail that check.
+  The consumer map renders city-precision stores as dashed circles
+  ("מיקום משוער") and fans stores sharing one centroid into a small ring.
 - **Promotions are per-item.** Chains publish umbrella promotions covering
   tens of thousands of items, each with its own deal price — terms live in
   `promotion_items`, never on the promotion header. Multi-buy bundles
