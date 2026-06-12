@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>שקוף סל לצרכן | מחשב מסלול קניות אופטימלי</title>
+  <title>שקוף סל | המחיר הזול ביותר ליד הבית</title>
   <!-- Google Fonts: Outfit & Rubik -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,11 +26,11 @@
           <i data-lucide="shopping-cart"></i>
         </div>
         <div class="logo-text">
-          <h1>שקוף סל <span>/ צרכנות חכמה</span></h1>
-          <p>השוואת סלים, מיקומים וניתוב נסיעה אופטימלי בין רשתות המזון</p>
+          <h1>שקוף סל <span>/ קניות חכמות</span></h1>
+          <p>מחירים אמיתיים מכל הרשתות — הזול ביותר בסניפים שליד הבית, כולל מבצעים</p>
         </div>
       </div>
-      
+
       <div class="header-actions">
         <a href="index.html" class="dev-portal-btn">
           <i data-lucide="code-2"></i>
@@ -39,34 +39,89 @@
       </div>
     </header>
 
+    <!-- Location toolbar: where you are drives every price on the page -->
+    <div class="panel locbar">
+      <div class="locbar-group locbar-current">
+        <i data-lucide="map-pin" class="locbar-pin"></i>
+        <div class="locbar-labels">
+          <span class="locbar-caption">המיקום שלי</span>
+          <span id="loc-label">ירושלים (מרכז)</span>
+        </div>
+        <button id="gps-location-btn" class="locbar-gps">
+          <i data-lucide="locate" style="width: 13px; height: 13px;"></i>
+          זהה אותי
+        </button>
+      </div>
+
+      <div class="locbar-group locbar-address">
+        <input type="text" id="address-input" placeholder="כתובת מדויקת (לדוגמה: הרצל 10, תל אביב)">
+        <button id="lookup-address-btn">אתר</button>
+        <select id="user-location" title="בחירת עיר">
+          <option value="" disabled selected>או עיר…</option>
+          <option value="jerusalem">ירושלים</option>
+          <option value="tel_aviv">תל אביב</option>
+          <option value="haifa">חיפה</option>
+          <option value="beer_sheva">באר שבע</option>
+          <option value="rehovot">רחובות</option>
+          <option value="netanya">נתניה</option>
+          <option value="afula">עפולה</option>
+        </select>
+      </div>
+
+      <div class="locbar-group locbar-radius">
+        <label for="max-distance">רדיוס</label>
+        <input type="range" id="max-distance" min="2" max="50" value="10">
+        <span id="distance-val">10 ק"מ</span>
+      </div>
+    </div>
+
     <!-- App Main Grid Layout -->
     <div class="consumer-grid">
-      
+
       <!-- Right Side: Search and Results -->
       <main class="search-section">
         <div class="panel">
           <div class="panel-header-search">
             <h2><i data-lucide="search"></i> חיפוש מוצרים והשוואת מחירים</h2>
-            <p class="panel-subtitle">חפש מוצר וקבל את המחיר הזול ביותר בסניפים שליד המיקום שלך — כולל מבצעים בתוקף.</p>
+            <p class="panel-subtitle">חפש מוצר וקבל את המחיר הזול ביותר בסניפים שבסביבה — כולל מבצעים בתוקף.</p>
           </div>
 
           <div class="search-bar-row">
             <div class="search-input-wrapper">
               <i data-lucide="search" class="search-icon-inside"></i>
-              <input type="text" id="product-search" placeholder="חפש מוצר (לדוגמה: קוטג', במבה, קפה...)" value="קוטג" autocomplete="off">
+              <input type="text" id="product-search" placeholder="חפש מוצר (לדוגמה: קוטג', במבה, קפה...)" autocomplete="off">
               <div id="suggest-dropdown" class="suggest-dropdown"></div>
             </div>
             <button id="search-btn" class="search-button">חפש</button>
           </div>
 
-          <div class="sorting-indicator">
-            <i data-lucide="arrow-down-narrow-wide"></i>
-            <span>מיון לפי:</span>
-            <div class="sort-toggle" id="sort-toggle">
-              <button data-sort="cheapest" class="active">הזול ביותר</button>
-              <button data-sort="unit_price">מחיר ל-100 גרם</button>
-              <button data-sort="relevance">רלוונטיות</button>
+          <div class="chips-row" id="category-chips">
+            <button class="chip" data-q="חלב">🥛 חלב</button>
+            <button class="chip" data-q="לחם">🍞 לחם</button>
+            <button class="chip" data-q="ביצים">🥚 ביצים</button>
+            <button class="chip" data-q="קוטג">🧀 קוטג'</button>
+            <button class="chip" data-q="קפה">☕ קפה</button>
+            <button class="chip" data-q="שמן זית">🫒 שמן זית</button>
+            <button class="chip" data-q="במבה">🥜 במבה</button>
+            <button class="chip" data-q="יוגורט">🍦 יוגורט</button>
+            <button class="chip chip-promo" id="promo-filter-chip" title="הצג רק מוצרים במבצע">
+              <i data-lucide="tag" style="width:12px;height:12px;"></i> רק מבצעים
+            </button>
+          </div>
+
+          <div class="chips-row recent-row" id="recent-chips" hidden></div>
+
+          <div class="results-toolbar">
+            <div class="sorting-indicator">
+              <i data-lucide="arrow-down-narrow-wide"></i>
+              <span>מיון:</span>
+              <div class="sort-toggle" id="sort-toggle">
+                <button data-sort="cheapest" class="active">הזול ביותר</button>
+                <button data-sort="unit_price">מחיר ל-100 גרם</button>
+                <button data-sort="relevance">רלוונטיות</button>
+              </div>
             </div>
+            <span class="results-context" id="results-context"></span>
           </div>
 
           <!-- Product Results Grid -->
@@ -84,51 +139,31 @@
             <div class="panel-title-group">
               <i data-lucide="shopping-bag"></i>
               <h3>עגלת הקניות שלי</h3>
+              <span class="cart-count" id="cart-count" hidden>0</span>
             </div>
           </div>
-          
+
           <div class="cart-box">
             <p class="empty-cart-msg" id="empty-cart-msg">העגלה ריקה. חפש מוצרים והוסף אותם כדי להתחיל.</p>
             <ul class="cart-list" id="cart-list">
               <!-- Dynamically populated cart items -->
             </ul>
+            <div class="cart-summary" id="cart-summary" hidden>
+              <div class="cart-total-row">
+                <span>סה"כ משוער (הזול בסביבה):</span>
+                <span class="cart-total-val" id="cart-total">₪0.00</span>
+              </div>
+              <span class="cart-disclaimer">לפי המחיר הזול לכל פריט בנפרד — המסלול האופטימלי עשוי לחסוך עוד</span>
+            </div>
           </div>
 
           <div class="user-config-area">
-            <div class="config-row">
-              <label><i data-lucide="map-pin"></i> כתובת או מיקום מוצא:</label>
-              <div class="address-lookup-group" style="display: flex; gap: 8px;">
-                <input type="text" id="address-input" placeholder="הזן כתובת (לדוגמה: הרצל 10, תל אביב)" style="flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); padding: 10px; border-radius: 8px; font-size: 13px; outline: none;">
-                <button id="lookup-address-btn" style="background: var(--accent-purple); border: none; color: white; border-radius: 8px; padding: 0 12px; font-size: 12px; font-weight: 600; cursor: pointer; transition: opacity 0.2s;">חפש</button>
-              </div>
-              <div style="display: flex; gap: 8px; margin-top: 4px;">
-                <button id="gps-location-btn" style="flex: 1; background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.2); color: var(--accent-cyan); border-radius: 6px; padding: 8px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                  <i data-lucide="locate" style="width: 12px; height: 12px;"></i>
-                  זהה מיקום (GPS)
-                </button>
-                <select id="user-location" style="flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); padding: 8px; border-radius: 6px; font-size: 11px; outline: none; cursor: pointer;">
-                  <option value="jerusalem">ירושלים (מרכז)</option>
-                  <option value="tel_aviv">תל אביב (מרכז)</option>
-                  <option value="rehovot">רחובות (מרכז)</option>
-                  <option value="haifa">חיפה (מרכז)</option>
-                </select>
-              </div>
-            </div>
-            
             <!-- Interactive Map Selector -->
             <div class="config-row">
               <label><i data-lucide="map"></i> בחירת מיקום על המפה (קליק לשינוי):</label>
-              <div id="shopper-map" style="height: 180px; border-radius: 8px; border: 1px solid var(--border-color); z-index: 10;"></div>
+              <div id="shopper-map" style="height: 200px; border-radius: 8px; border: 1px solid var(--border-color); z-index: 10;"></div>
             </div>
-            
-            <div class="config-row">
-              <div class="slider-header">
-                <label for="max-distance"><i data-lucide="milestone"></i> מרחק נסיעה מקסימלי:</label>
-                <span id="distance-val">10 ק"מ</span>
-              </div>
-              <input type="range" id="max-distance" min="2" max="50" value="10">
-            </div>
-            
+
             <button id="optimize-btn" class="optimize-btn">
               <i data-lucide="git-branch"></i> חשב מסלול קניות אופטימלי
             </button>
@@ -143,7 +178,7 @@
               <h3>הצעות מסלול מותאמות</h3>
             </div>
           </div>
-          
+
           <div class="routes-container" id="routes-container">
             <div class="routing-placeholder-msg">
               <i data-lucide="info"></i>
@@ -155,6 +190,8 @@
 
     </div>
   </div>
+
+  <div class="toast" id="toast" hidden></div>
 
   <script src="consumer.js"></script>
 </body>
