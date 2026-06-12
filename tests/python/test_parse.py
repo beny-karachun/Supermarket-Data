@@ -41,6 +41,12 @@ class TestUnitPrice:
     def test_grams_per_100(self):
         assert compute_unit_price(11.5, 439, 'גרם') == pytest.approx(2.62, abs=0.01)
 
+    def test_plural_grams_variant(self):
+        # Rami Levy publishes 'גרמים' on thousands of items; a miss here
+        # silently degrades to per-gram pricing (off by 100x)
+        assert compute_unit_price(5.9, 250, 'גרמים') == pytest.approx(2.36)
+        assert compute_unit_price(2.8, 100, 'גרמים') == pytest.approx(2.80)
+
     def test_kilo_normalized_to_100g(self):
         # 2kg for 40 -> 2 per 100g, same basis as gram-priced items
         assert compute_unit_price(40, 2, 'ק"ג') == pytest.approx(2.0)

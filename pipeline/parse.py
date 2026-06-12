@@ -153,8 +153,11 @@ def parse_stores_file(path):
 
 # unit name (after quote-stripping) -> multiplier converting item quantity to
 # the per-100g/100ml comparison basis; None = priced per unit/package.
+# Chains mix singular/plural freely (Rami Levy ships 'גרמים' on thousands of
+# items) — every observed variant must be listed or the item silently falls
+# back to per-unit pricing.
 _UNIT_BASIS = {
-    'גרם': 0.01, 'גר': 0.01, 'גרםם': 0.01,
+    'גרם': 0.01, 'גר': 0.01, 'גרםם': 0.01, 'גרמים': 0.01,
     'קג': 10.0, 'קילו': 10.0, 'קילוגרם': 10.0, 'קילוגרמים': 10.0,
     'מל': 0.01, 'מיליליטר': 0.01, 'מיליליטרים': 0.01,
     'ליטר': 10.0, 'ליטרים': 10.0, 'לטר': 10.0,

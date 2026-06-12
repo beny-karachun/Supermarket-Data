@@ -82,6 +82,15 @@ document.addEventListener('DOMContentLoaded', () => {
     return (chainMeta[id] && chainMeta[id].name) || id;
   }
 
+  // unit_price is normalized to per-100g / per-100ml for weight/volume items
+  // (kg/liter included) and per-unit otherwise — label accordingly.
+  function unitPriceLabel(unit) {
+    const u = String(unit || '').replace(/[׳״'"`]/g, '').trim();
+    if (['גרם', 'גר', 'גרמים', 'קג', 'קילו', 'קילוגרם', 'קילוגרמים'].includes(u)) return 'ל-100 גרם';
+    if (['מל', 'מיליליטר', 'מיליליטרים', 'ליטר', 'ליטרים', 'לטר'].includes(u)) return 'ל-100 מ"ל';
+    return 'ליחידה';
+  }
+
   function getChainColor(id) {
     return (chainMeta[id] && chainMeta[id].color) || '#94a3b8';
   }
@@ -398,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ${hasPromo && prod.promo_description ? `<div class="promo-desc-row"></div>` : ''}
           <div class="price-meta-row">
             <span class="range-text">${rangeText}</span>
-            <span class="unit-text">₪${(prod.best_unit_price ?? 0).toFixed(2)} ל-100 ${prod.unit_of_measure || 'יח׳'}</span>
+            <span class="unit-text">₪${(prod.best_unit_price ?? 0).toFixed(2)} ${unitPriceLabel(prod.unit_of_measure)}</span>
           </div>
         </div>
 
