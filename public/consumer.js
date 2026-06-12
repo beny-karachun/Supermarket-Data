@@ -20,6 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const cartTotal = document.getElementById('cart-total');
 
   const locLabel = document.getElementById('loc-label');
+  const mapDrawer = document.getElementById('map-drawer');
+  const mapToggle = document.getElementById('map-toggle');
   const userLocationSelect = document.getElementById('user-location');
   const maxDistanceSlider = document.getElementById('max-distance');
   const distanceValSpan = document.getElementById('distance-val');
@@ -34,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     radius: 'shakufsal_radius',
     sort: 'shakufsal_sort',
     recent: 'shakufsal_recent',
+    mapOpen: 'shakufsal_map',
   };
 
   const readJSON = (key, fallback) => {
@@ -61,6 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentLocation = readJSON(KEYS.loc, { lat: 31.7680, lon: 35.2100, label: 'ירושלים (מרכז)' });
   let recentSearches = readJSON(KEYS.recent, []);
   let currentSort = readJSON(KEYS.sort, 'cheapest');
+  let mapOpen = readJSON(KEYS.mapOpen, true);
   maxDistanceSlider.value = readJSON(KEYS.radius, 10);
 
   let allStores = [];
@@ -191,6 +195,33 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // The map collapses into the location toolbar. Layers keep drawing while
+  // hidden (cheap), but a hidden Leaflet container has zero size — so any
+  // fitBounds must wait for invalidateSize after the drawer opens.
+  function fitMapView() {
+    if (!map || mapDrawer.hidden) return;
+    map.invalidateSize();
+    if (routeLines.length > 0) {
+      map.fitBounds(routeLines[0].getBounds(), { padding: [30, 30] });
+      return;
+    }
+    const nearby = getNearbyStores();
+    if (nearby.length > 0) {
+      const coords = [[currentLocation.lat, currentLocation.lon], ...nearby.map(s => [s.latitude, s.longitude])];
+      map.fitBounds(L.latLngBounds(coords), { padding: [40, 40] });
+    }
+  }
+
+  function setMapOpen(open) {
+    mapOpen = open;
+    writeJSON(KEYS.mapOpen, open);
+    mapDrawer.hidden = !open;
+    mapToggle.classList.toggle('active', open);
+    if (open) requestAnimationFrame(fitMapView);
+  }
+
+  mapToggle.addEventListener('click', () => setMapOpen(!mapOpen));
+
   userLocationSelect.addEventListener('change', () => {
     const preset = cityPresets[userLocationSelect.value];
     if (preset) setLocation(preset.lat, preset.lon, preset.name);
@@ -316,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
       nearbyStoreMarkers.push(marker);
     });
 
-    if (nearby.length > 0) {
+    if (nearby.length > 0 && !mapDrawer.hidden) {
       const coords = [[currentLocation.lat, currentLocation.lon], ...nearby.map(s => [s.latitude, s.longitude])];
       map.fitBounds(L.latLngBounds(coords), { padding: [40, 40] });
     }
@@ -813,7 +844,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ----- route drawing -----
 
-  function drawRouteOnMap(route, userLoc) {
+  function drawRouteOnMap(route, userLoc, opts = {}) {
     routeLines.forEach(l => map.removeLayer(l));
     mapStoreMarkers.forEach(m => map.removeLayer(m));
     routeLines = [];
@@ -860,8 +891,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }).addTo(map);
 
     routeLines.push(polyline);
-    map.fitBounds(L.latLngBounds(coords), { padding: [30, 30] });
-    if (mapStoreMarkers.length > 0) mapStoreMarkers[0].openPopup();
+
+    if (opts.forceOpen && mapDrawer.hidden) {
+      setMapOpen(true); // fits to the new route after invalidateSize
+    } else if (!mapDrawer.hidden) {
+      requestAnimationFrame(() => {
+        map.invalidateSize();
+        map.fitBounds(L.latLngBounds(coords), { padding: [30, 30] });
+      });
+    }
+    if (!mapDrawer.hidden && mapStoreMarkers.length > 0) mapStoreMarkers[0].openPopup();
   }
 
   let currentOptimalPurchases = {};
@@ -1214,7 +1253,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         card.querySelector('.btn-draw-map').addEventListener('click', () => {
           currentOptimalPurchases = opt.purchases;
-          drawRouteOnMap(opt.route, userLoc);
+          drawRouteOnMap(opt.route, userLoc, { forceOpen: true });
+          mapDrawer.scrollIntoView({ behavior: 'smooth', block: 'center' });
           document.querySelectorAll('.route-card').forEach(c => c.style.borderColor = 'var(--border-color)');
           card.style.borderColor = 'var(--accent-cyan)';
         });
@@ -1247,6 +1287,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   locLabel.textContent = currentLocation.label;
   distanceValSpan.innerText = `${maxDistanceSlider.value} ק"מ`;
+  mapDrawer.hidden = !mapOpen;
+  mapToggle.classList.toggle('active', mapOpen);
   applySortUI();
   renderRecentChips();
   initMap();

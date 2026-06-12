@@ -39,39 +39,53 @@
       </div>
     </header>
 
-    <!-- Location toolbar: where you are drives every price on the page -->
+    <!-- Location toolbar: where you are drives every price on the page.
+         The map lives here too — picking a point IS picking a location. -->
     <div class="panel locbar">
-      <div class="locbar-group locbar-current">
-        <i data-lucide="map-pin" class="locbar-pin"></i>
-        <div class="locbar-labels">
-          <span class="locbar-caption">המיקום שלי</span>
-          <span id="loc-label">ירושלים (מרכז)</span>
+      <div class="locbar-controls">
+        <div class="locbar-group locbar-current">
+          <i data-lucide="map-pin" class="locbar-pin"></i>
+          <div class="locbar-labels">
+            <span class="locbar-caption">המיקום שלי</span>
+            <span id="loc-label">ירושלים (מרכז)</span>
+          </div>
+          <button id="gps-location-btn" class="locbar-gps">
+            <i data-lucide="locate" style="width: 13px; height: 13px;"></i>
+            זהה אותי
+          </button>
         </div>
-        <button id="gps-location-btn" class="locbar-gps">
-          <i data-lucide="locate" style="width: 13px; height: 13px;"></i>
-          זהה אותי
+
+        <div class="locbar-group locbar-address">
+          <input type="text" id="address-input" placeholder="כתובת מדויקת (לדוגמה: הרצל 10, תל אביב)">
+          <button id="lookup-address-btn">אתר</button>
+          <select id="user-location" title="בחירת עיר">
+            <option value="" disabled selected>או עיר…</option>
+            <option value="jerusalem">ירושלים</option>
+            <option value="tel_aviv">תל אביב</option>
+            <option value="haifa">חיפה</option>
+            <option value="beer_sheva">באר שבע</option>
+            <option value="rehovot">רחובות</option>
+            <option value="netanya">נתניה</option>
+            <option value="afula">עפולה</option>
+          </select>
+        </div>
+
+        <div class="locbar-group locbar-radius">
+          <label for="max-distance">רדיוס</label>
+          <input type="range" id="max-distance" min="2" max="50" value="10">
+          <span id="distance-val">10 ק"מ</span>
+        </div>
+
+        <button id="map-toggle" class="locbar-map-toggle" title="קליק על המפה מסמן מיקום">
+          <i data-lucide="map" style="width: 13px; height: 13px;"></i>
+          מפה
+          <i data-lucide="chevron-down" class="map-chevron"></i>
         </button>
       </div>
 
-      <div class="locbar-group locbar-address">
-        <input type="text" id="address-input" placeholder="כתובת מדויקת (לדוגמה: הרצל 10, תל אביב)">
-        <button id="lookup-address-btn">אתר</button>
-        <select id="user-location" title="בחירת עיר">
-          <option value="" disabled selected>או עיר…</option>
-          <option value="jerusalem">ירושלים</option>
-          <option value="tel_aviv">תל אביב</option>
-          <option value="haifa">חיפה</option>
-          <option value="beer_sheva">באר שבע</option>
-          <option value="rehovot">רחובות</option>
-          <option value="netanya">נתניה</option>
-          <option value="afula">עפולה</option>
-        </select>
-      </div>
-
-      <div class="locbar-group locbar-radius">
-        <label for="max-distance">רדיוס</label>
-        <input type="range" id="max-distance" min="2" max="50" value="10">
-        <span id="distance-val">10 ק"מ</span>
+      <div class="map-drawer" id="map-drawer">
+        <div id="shopper-map"></div>
+        <span class="map-hint">קליק על המפה מסמן מיקום · הנקודות הצבעוניות הן סניפים ברדיוס</span>
       </div>
     </div>
 
@@ -81,11 +95,6 @@
       <!-- Right Side: Search and Results -->
       <main class="search-section">
         <div class="panel">
-          <div class="panel-header-search">
-            <h2><i data-lucide="search"></i> חיפוש מוצרים והשוואת מחירים</h2>
-            <p class="panel-subtitle">חפש מוצר וקבל את המחיר הזול ביותר בסניפים שבסביבה — כולל מבצעים בתוקף.</p>
-          </div>
-
           <div class="search-bar-row">
             <div class="search-input-wrapper">
               <i data-lucide="search" class="search-icon-inside"></i>
@@ -158,12 +167,6 @@
           </div>
 
           <div class="user-config-area">
-            <!-- Interactive Map Selector -->
-            <div class="config-row">
-              <label><i data-lucide="map"></i> בחירת מיקום על המפה (קליק לשינוי):</label>
-              <div id="shopper-map" style="height: 200px; border-radius: 8px; border: 1px solid var(--border-color); z-index: 10;"></div>
-            </div>
-
             <button id="optimize-btn" class="optimize-btn">
               <i data-lucide="git-branch"></i> חשב מסלול קניות אופטימלי
             </button>
