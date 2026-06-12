@@ -88,8 +88,7 @@ def seed_database():
     ]
     cursor.executemany("INSERT INTO chains VALUES (?, ?, ?, ?, ?)", chains_data)
 
-    # 3. Compile large list of 120+ real supermarket branches in main Israeli cities
-    # (Using realistic coordinates for each city/branch)
+    # 3. Compile large list of supermarket branches in main Israeli cities
     cities_coords = {
         'ירושלים': (31.7683, 35.2137),
         'תל אביב': (32.0853, 34.7818),
@@ -106,7 +105,46 @@ def seed_database():
         'אשדוד': (31.7921, 34.6333),
         'כפר סבא': (32.1750, 34.9064),
         'רעננה': (32.1848, 34.8713),
-        'מודיעין': (31.8998, 35.0076)
+        'מודיעין': (31.8998, 35.0076),
+        'בני ברק': (32.0833, 34.8333),
+        'אשקלון': (31.6693, 34.5715),
+        'בית שמש': (31.7470, 34.9881),
+        'חדרה': (32.4340, 34.9197),
+        'לוד': (31.9510, 34.8881),
+        'רמלה': (31.9275, 34.8631),
+        'גבעתיים': (32.0722, 34.8125),
+        'הוד השרון': (32.1553, 34.8926),
+        'קרית גת': (31.6034, 34.7718),
+        'נהריה': (32.9996, 35.0933),
+        'עפולה': (32.6078, 35.2897),
+        'אילת': (29.5577, 34.9519),
+        'קרית אתא': (32.8028, 35.1039),
+        'אום אל-פחם': (32.5167, 35.1500),
+        'קרית מוצקין': (32.8392, 35.0761),
+        'קרית ים': (32.8464, 35.0683),
+        'קרית ביאליק': (32.8319, 35.0903),
+        'רמת השרון': (32.1392, 34.8397),
+        'טבריה': (32.7922, 35.5312),
+        'נצרת': (32.6996, 35.3035),
+        'טייבה': (32.2647, 35.0125),
+        'נס ציונה': (31.9250, 34.7981),
+        'קרית שמונה': (33.2078, 35.5700),
+        'כרמיאל': (32.9100, 35.2900),
+        'דימונה': (31.0694, 34.9819),
+        'אור יהודה': (32.0306, 34.8519),
+        'יבנה': (31.8781, 34.7397),
+        'יהוד': (32.0322, 34.8967),
+        'צפת': (32.9658, 35.4983),
+        'ערד': (31.2614, 35.2147),
+        'שדרות': (31.5233, 34.5947),
+        'אופקים': (31.3144, 34.6200),
+        'נתיבות': (31.4189, 34.5950),
+        'שפרעם': (32.8056, 35.1706),
+        'מעלות תרשיחא': (33.0114, 35.2683),
+        'מגדל העמק': (32.6736, 35.2403),
+        'בית שאן': (32.4972, 35.4975),
+        'נשר': (32.7631, 35.0394),
+        'קרית אונו': (32.0628, 34.8572)
     }
 
     stores_data = []
@@ -128,22 +166,93 @@ def seed_database():
         'ויצמן {}', 'העצמאות {}', 'רוטשילד {}', 'ההסתדרות {}', 'הירקון {}'
     ]
 
+    large_cities = {'ירושלים', 'תל אביב', 'חיפה', 'ראשון לציון', 'פתח תקווה', 'באר שבע', 'אשדוד', 'נתניה', 'חולון'}
+    medium_cities = {
+        'בת ים', 'רמת גן', 'הרצליה', 'כפר סבא', 'רעננה', 'מודיעין', 'בני ברק', 'אשקלון',
+        'בית שמש', 'חדרה', 'לוד', 'רמלה', 'יבנה', 'קרית אונו', 'גבעתיים', 'הוד השרון',
+        'נס ציונה', 'נצרת', 'כרמיאל', 'טבריה', 'עפולה', 'נהריה'
+    }
+
+    city_chains_mapping = {
+        'ירושלים': ['shufersal', 'rami_levy', 'victory', 'yohananof'],
+        'תל אביב': ['shufersal', 'victory', 'tiv_taam', 'rami_levy'],
+        'חיפה': ['shufersal', 'rami_levy', 'victory', 'tiv_taam', 'yohananof'],
+        'באר שבע': ['shufersal', 'rami_levy', 'victory', 'yohananof'],
+        'ראשון לציון': ['shufersal', 'rami_levy', 'victory', 'yohananof', 'tiv_taam'],
+        'פתח תקווה': ['shufersal', 'rami_levy', 'victory', 'yohananof'],
+        'רחובות': ['shufersal', 'rami_levy', 'victory', 'yohananof', 'tiv_taam'],
+        'נתניה': ['shufersal', 'rami_levy', 'victory', 'yohananof', 'tiv_taam'],
+        'חולון': ['shufersal', 'victory', 'yohananof', 'rami_levy'],
+        'בת ים': ['shufersal', 'victory', 'yohananof', 'tiv_taam'],
+        'רמת גן': ['shufersal', 'victory', 'tiv_taam', 'rami_levy'],
+        'הרצליה': ['shufersal', 'victory', 'tiv_taam'],
+        'אשדוד': ['shufersal', 'rami_levy', 'victory', 'yohananof', 'tiv_taam'],
+        'כפר סבא': ['shufersal', 'rami_levy', 'victory', 'tiv_taam'],
+        'רעננה': ['shufersal', 'victory', 'tiv_taam'],
+        'מודיעין': ['shufersal', 'rami_levy', 'victory', 'tiv_taam'],
+        'בני ברק': ['shufersal'],
+        'אשקלון': ['shufersal', 'rami_levy', 'victory', 'yohananof', 'tiv_taam'],
+        'בית שמש': ['shufersal', 'rami_levy', 'victory'],
+        'חדרה': ['shufersal', 'rami_levy', 'victory', 'tiv_taam'],
+        'לוד': ['shufersal', 'victory', 'yohananof'],
+        'רמלה': ['shufersal', 'victory', 'yohananof'],
+        'גבעתיים': ['shufersal', 'victory', 'tiv_taam'],
+        'הוד השרון': ['shufersal', 'victory', 'tiv_taam'],
+        'קרית גת': ['shufersal', 'victory', 'yohananof'],
+        'נהריה': ['shufersal', 'rami_levy', 'victory'],
+        'עפולה': ['shufersal', 'rami_levy', 'victory'],
+        'אילת': ['shufersal', 'rami_levy', 'victory', 'tiv_taam'],
+        'קרית אתא': ['shufersal', 'rami_levy', 'victory'],
+        'אום אל-פחם': ['shufersal'],
+        'קרית מוצקין': ['shufersal', 'rami_levy', 'victory'],
+        'קרית ים': ['shufersal', 'victory'],
+        'קרית ביאליק': ['shufersal', 'victory', 'tiv_taam'],
+        'רמת השרון': ['shufersal', 'victory', 'tiv_taam'],
+        'טבריה': ['shufersal', 'rami_levy', 'victory'],
+        'נצרת': ['shufersal'],
+        'טייבה': ['shufersal'],
+        'נס ציונה': ['shufersal', 'victory', 'yohananof', 'tiv_taam'],
+        'קרית שמונה': ['shufersal', 'rami_levy', 'victory'],
+        'כרמיאל': ['shufersal', 'rami_levy', 'victory'],
+        'דימונה': ['shufersal', 'victory'],
+        'אור יהודה': ['shufersal', 'victory', 'yohananof'],
+        'יבנה': ['shufersal', 'victory', 'yohananof', 'tiv_taam'],
+        'יהוד': ['shufersal', 'victory', 'tiv_taam'],
+        'צפת': ['shufersal', 'rami_levy'],
+        'ערד': ['shufersal', 'victory'],
+        'שדרות': ['shufersal', 'rami_levy', 'victory'],
+        'אופקים': ['shufersal', 'rami_levy'],
+        'נתיבות': ['shufersal', 'rami_levy', 'victory', 'yohananof'],
+        'שפרעם': ['shufersal'],
+        'מעלות תרשיחא': ['shufersal', 'victory'],
+        'מגדל העמק': ['shufersal', 'rami_levy', 'victory'],
+        'בית שאן': ['shufersal', 'rami_levy'],
+        'נשר': ['shufersal', 'rami_levy', 'victory'],
+        'קרית אונו': ['shufersal', 'victory']
+    }
+
     for city, (city_lat, city_lon) in cities_coords.items():
-        # Every city will have 5-9 supermarket locations representing different chains
-        num_stores_in_city = random.randint(5, 8)
-        selected_chains = random.sample(chains_list, min(num_stores_in_city, len(chains_list)))
+        if city in large_cities:
+            num_stores = random.randint(15, 20)
+        elif city in medium_cities:
+            num_stores = random.randint(10, 14)
+        else:
+            num_stores = random.randint(5, 8)
         
-        for chain in selected_chains:
+        allowed_chains = city_chains_mapping.get(city, ['shufersal'])
+        
+        for _ in range(num_stores):
+            chain = random.choice(allowed_chains)
             store_counter += 1
             store_id = str(store_counter)
             
-            # Create a slight coordinate variation around city center (within ~3km radius)
-            lat_offset = random.uniform(-0.02, 0.02)
-            lon_offset = random.uniform(-0.02, 0.02)
+            # Coordinate variation within city bounds (~3.5km radius)
+            lat_offset = random.uniform(-0.025, 0.025)
+            lon_offset = random.uniform(-0.025, 0.025)
             store_lat = city_lat + lat_offset
             store_lon = city_lon + lon_offset
 
-            addr_num = random.randint(1, 150)
+            addr_num = random.randint(1, 199)
             addr_template = random.choice(addresses)
             store_addr = addr_template.format(addr_num)
             

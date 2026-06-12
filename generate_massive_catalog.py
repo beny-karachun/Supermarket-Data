@@ -128,6 +128,23 @@ def generate_catalog():
     prices_batch = []
     
     barcode_counter = 7290000000000
+    seen_names = set()
+    
+    sub_brands_pool = {
+        'Dairy': ['במרקם שמנת', 'מועשר בסידן', 'ללא לקטוז', 'דל לקטוז', 'קל', 'קלאסי', 'אורגני', 'עיזים', 'מקומי', 'בטעם עדיn'],
+        'Bakery': ['כפרי', 'מחמצת', 'מלא', 'מחיטה מלאה', 'קל', 'פרוס דק', 'בסגנון איטלקי', 'עם שומשום', 'ללא גלוטן', 'מסורתי'],
+        'Produce': ['אורגני', 'מובחר', 'איכות פרימיום', 'טרי מהשדה', 'בלאדי', 'חממה', 'בעונה', 'ללא ריסוס', 'לסלט', 'מבוקר'],
+        'Pantry': ['כתית מעולה', 'בכבישה קרה', 'מיובא', 'ללא סוכר', 'ללא גלוטן', 'אורגני', 'מארז חיסכון', 'מסורתי', 'בטעם עשיר', 'מבושל'],
+        'Drinks': ['קלאסי', 'דיאט', 'זירו', 'סחוט טבעי', 'ללא סוכר', 'מועז', 'בטעם פירות', 'קפוא', 'ללא גזים', 'עדין'],
+        'Snacks': ['נוגט', 'חלבה', 'חריף', 'מתוק', 'מלוח', 'במארז משפחתי', 'פריך', 'מריר', 'חלב', 'ללא גלוטן'],
+        'Hygiene': ['לימון', 'תפוח', 'אלוורה', 'לבושם עדין', 'למניעת קשקשים', 'עם לחות', 'סנסיטיב', 'קלאסיק', 'פרחי בר', 'רענן']
+    }
+
+    suffixes_pool = [
+        '', '', '', '', '', 
+        '(מארז זוג)', '(אריזה משפחתית)', '(מהדורה מוגבלת)', '(אריזת חיסכון)',
+        '(חדש!)', '(סדרה מיוחדת)', '(אריזה אישית)', '(ייצור מיוחד)'
+    ]
     
     print("Programmatically generating 12,000+ products...")
     
@@ -159,24 +176,56 @@ def generate_catalog():
                     except:
                         item_name = template_str
                         
-                    # Add unique details to name (e.g. index/variant number)
-                    item_name = f"{item_name} מדגם {i+1}"
+                    # Add unique details to name using descriptive sub-brands and suffixes
+                    desc = random.choice(sub_brands_pool.get(category, ['קלאסי']))
+                    suffix = random.choice(suffixes_pool)
+                    
+                    if desc not in item_name:
+                        for u in [' גרם', ' ליטר', ' מ"ל', ' יחידות', ' ק"ג']:
+                            if u in item_name:
+                                item_name = item_name.replace(u, f"{u} {desc}")
+                                break
+                        else:
+                            item_name = f"{item_name} {desc}"
+                            
+                    if suffix:
+                        item_name = f"{item_name} {suffix}"
+                        
+                    if item_name in seen_names:
+                        item_name = f"{item_name} (סדרה {i+1})"
+                    
+                    seen_names.add(item_name)
                     
                     # Quantity
                     qty = 1.0
-                    if len(var_tuple) > 1:
+                    parsed_qty = False
+                    
+                    if len(var_tuple) >= 1:
+                        val = var_tuple[-1]
+                        cleaned_val = val.replace(' ק"ג', '').replace(' גרם', '').replace(' מ"ל', '').replace(' ליטר', '').replace(' יחידות', '').strip()
                         try:
-                            qty = float(var_tuple[1])
-                        except:
+                            qty = float(cleaned_val)
+                            parsed_qty = True
+                        except ValueError:
+                            pass
+                    
+                    if not parsed_qty:
+                        for val in reversed(var_tuple):
+                            cleaned_val = val.replace(' ק"ג', '').replace(' גרם', '').replace(' מ"ל', '').replace(' ליטר', '').replace(' יחידות', '').strip()
                             try:
-                                qty = float(var_tuple[0].replace(' ק"ג', '').replace(' גרם', ''))
-                            except:
+                                qty = float(cleaned_val)
+                                parsed_qty = True
+                                break
+                            except ValueError:
                                 pass
                                 
                     products_batch.append((barcode, item_name, mfg, brand, qty, unit, 0))
                     
-                    # Generate prices for all 80 stores for this barcode
-                    for store_id, chain_id in stores:
+                    # Sample about 15% of all stores in Israel to carry this specific product
+                    num_carrying = max(5, int(len(stores) * random.uniform(0.12, 0.18)))
+                    carrying_stores = random.sample(stores, k=num_carrying)
+                    
+                    for store_id, chain_id in carrying_stores:
                         factor = chain_price_factors.get(chain_id, 1.0)
                         noise = random.uniform(0.97, 1.03)
                         store_price = round(ref_price * factor * noise, 2)
