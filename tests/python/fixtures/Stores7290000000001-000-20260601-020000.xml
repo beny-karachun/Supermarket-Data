@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root>
+  <ChainID>7290000000001</ChainID>
+  <LastUpdateDate>2026-06-01</LastUpdateDate>
+  <SubChains>
+    <SubChain>
+      <SubChainID>1</SubChainID>
+      <SubChainName>רשת בדיקה</SubChainName>
+      <Stores>
+        <Store>
+          <StoreID>005</StoreID>
+          <BikoretNo>7</BikoretNo>
+          <StoreType>1</StoreType>
+          <StoreName>סניף דיזנגוף</StoreName>
+          <Address>דיזנגוף 100</Address>
+          <City>תל אביב</City>
+          <ZIPCode>6400000</ZIPCode>
+        </Store>
+        <Store>
+          <StoreID>006</StoreID>
+          <StoreName>סניף קוד עיר</StoreName>
+          <Address>הרצל 1</Address>
+          <City>2530</City>
+        </Store>
+        <Store>
+          <StoreID>007</StoreID>
+          <StoreName>סניף ללא מיקום</StoreName>
+          <Address>unknown</Address>
+          <City>0</City>
+        </Store>
+      </Stores>
+    </SubChain>
+  </SubChains>
+</Root>

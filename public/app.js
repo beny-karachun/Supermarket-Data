@@ -25,6 +25,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // State Variables
   let currentProductBarcode = '';
   let pollingIntervals = {};
+  let chainMeta = {}; // chain_id -> { name, color } loaded from /api/v1/chains
+
+  async function loadChains() {
+    try {
+      const res = await fetch('/api/v1/chains');
+      const data = await res.json();
+      if (data.success) {
+        data.data.forEach(c => {
+          chainMeta[c.id] = { name: c.name_he, color: c.color || '#94a3b8' };
+        });
+      }
+    } catch (err) {
+      console.error('Error loading chains:', err);
+    }
+  }
 
   // Scraper status fetcher
   async function fetchScrapers() {
@@ -32,22 +47,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/v1/scraper-status');
       const data = await res.json();
       if (data.success) {
-        renderScrapers(data.data);
+        renderScrapers(data.data, data.totals);
       }
     } catch (err) {
       console.error('Error fetching scrapers:', err);
     }
   }
 
-  function renderScrapers(statusMap) {
+  function renderScrapers(statusMap, totals) {
     scrapersContainer.innerHTML = '';
-    let activeUpdates = 0;
     let totalSize = 0;
-    
+
     Object.keys(statusMap).forEach(chainId => {
       const chain = statusMap[chainId];
       const displayName = getChainNameHebrew(chainId);
-      activeUpdates += chain.files_downloaded * 23010;
       totalSize += chain.size_mb;
 
       const isRunning = chain.status === 'running';
@@ -106,31 +119,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     lucide.createIcons();
     document.getElementById('metric-size').innerText = `${(totalSize / 1024).toFixed(2)} GB`;
-    if (activeUpdates > 0) {
-      document.getElementById('metric-updates').innerText = activeUpdates.toLocaleString();
+    if (totals && totals.rows_ingested > 0) {
+      document.getElementById('metric-updates').innerText = totals.rows_ingested.toLocaleString();
     }
   }
 
   function getChainNameHebrew(id) {
-    const names = {
-      shufersal: 'שופרסל',
-      rami_levy: 'רמי לוי',
-      yohananof: 'יוחננוף',
-      victory: 'ויקטורי',
-      tiv_taam: 'טיב טעם'
-    };
-    return names[id] || id;
+    return (chainMeta[id] && chainMeta[id].name) || id;
   }
 
   function getChainColor(id) {
-    const colors = {
-      shufersal: '#ef4444',
-      rami_levy: '#f59e0b',
-      yohananof: '#8b5cf6',
-      victory: '#06b6d4',
-      tiv_taam: '#10b981'
-    };
-    return colors[id] || '#ffffff';
+    return (chainMeta[id] && chainMeta[id].color) || '#94a3b8';
   }
 
   function formatTime(isoStr) {
@@ -149,22 +148,24 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({ chain_id: chainId })
       });
       const data = await response.json();
-      if (data.success) {
-        fetchScrapers();
-        if (pollingIntervals[chainId]) clearInterval(pollingIntervals[chainId]);
-        pollingIntervals[chainId] = setInterval(async () => {
-          const res = await fetch('/api/v1/scraper-status');
-          const statusData = await res.json();
-          if (statusData.success) {
-            const chainStatus = statusData.data[chainId];
-            renderScrapers(statusData.data);
-            if (chainStatus.status !== 'running') {
-              clearInterval(pollingIntervals[chainId]);
-              delete pollingIntervals[chainId];
-            }
-          }
-        }, 1500);
+      if (!data.success) {
+        alert(data.error || 'הפעלת הסריקה נכשלה');
+        return;
       }
+      fetchScrapers();
+      if (pollingIntervals[chainId]) clearInterval(pollingIntervals[chainId]);
+      pollingIntervals[chainId] = setInterval(async () => {
+        const res = await fetch('/api/v1/scraper-status');
+        const statusData = await res.json();
+        if (statusData.success) {
+          const chainStatus = statusData.data[chainId];
+          renderScrapers(statusData.data, statusData.totals);
+          if (chainStatus && chainStatus.status !== 'running') {
+            clearInterval(pollingIntervals[chainId]);
+            delete pollingIntervals[chainId];
+          }
+        }
+      }, 1500);
     } catch (err) {
       console.error('Error triggering scraper:', err);
     }
@@ -266,6 +267,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // API Playground Parameters Mapping
   const endpointParams = {
+    '/api/v1/search': [
+      { name: 'q', placeholder: 'e.g. חלב תנובה (חיפוש חכם)', type: 'text' },
+      { name: 'lat', placeholder: 'e.g. 32.08', type: 'text' },
+      { name: 'lon', placeholder: 'e.g. 34.78', type: 'text' },
+      { name: 'radius_km', placeholder: 'e.g. 10', type: 'text' },
+      { name: 'sort', placeholder: 'cheapest | unit_price | relevance', type: 'text' }
+    ],
+    '/api/v1/search/suggest': [
+      { name: 'q', placeholder: 'e.g. קוט (השלמה אוטומטית)', type: 'text' }
+    ],
     '/api/v1/chains': [],
     '/api/v1/stores': [
       { name: 'chain_id', placeholder: 'e.g. shufersal (סינון לפי רשת)', type: 'text' }
@@ -276,7 +287,9 @@ document.addEventListener('DOMContentLoaded', () => {
     ],
     '/api/v1/prices': [
       { name: 'barcode', placeholder: 'e.g. 7290000042420 (ברקוד)', type: 'text' },
-      { name: 'store_id', placeholder: 'e.g. shufersal_123 (מזהה סניף)', type: 'text' }
+      { name: 'store_id', placeholder: 'e.g. shufersal_123 (מזהה סניף)', type: 'text' },
+      { name: 'limit', placeholder: 'e.g. 200 (ברירת מחדל)', type: 'text' },
+      { name: 'offset', placeholder: 'e.g. 0', type: 'text' }
     ],
     '/api/v1/scraper-status': []
   };
@@ -364,7 +377,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Init
-  fetchScrapers();
-  searchProducts('קוטג');
+  loadChains().then(() => {
+    fetchScrapers();
+    searchProducts('קוטג');
+  });
   updatePlaygroundParams();
 });

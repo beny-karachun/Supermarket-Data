@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root>
+  <ChainID>7290000000001</ChainID>
+  <SubChainID>001</SubChainID>
+  <StoreID>005</StoreID>
+  <BikoretNo>9</BikoretNo>
+  <Items>
+    <Item>
+      <PriceUpdateTime>2026-06-01T02:36:00</PriceUpdateTime>
+      <ItemCode>7290000042420</ItemCode>
+      <ItemName>קוטג' תנובה 5% 250 גרם</ItemName>
+      <ManufactureName>תנובה</ManufactureName>
+      <UnitQty>גרם</UnitQty>
+      <Quantity>250.00</Quantity>
+      <UnitOfMeasure>100 גרם</UnitOfMeasure>
+      <bIsWeighted>0</bIsWeighted>
+      <QtyInPackage>1</QtyInPackage>
+      <ItemPrice>5.90</ItemPrice>
+      <UnitOfMeasurePrice>2.36</UnitOfMeasurePrice>
+      <AllowDiscount>1</AllowDiscount>
+      <ItemStatus />
+    </Item>
+    <Item>
+      <PriceUpdateTime>2026-06-01T02:36:00.000</PriceUpdateTime>
+      <ItemCode>7290112349102</ItemCode>
+      <ItemName>חלב תנובה 3% 1 ליטר</ItemName>
+      <ManufactureName>לא ידוע</ManufactureName>
+      <UnitQty>ליטר</UnitQty>
+      <Quantity>1.00</Quantity>
+      <UnitOfMeasure>ליטר</UnitOfMeasure>
+      <bIsWeighted>0</bIsWeighted>
+      <ItemPrice>6.20</ItemPrice>
+      <UnitOfMeasurePrice>6.20</UnitOfMeasurePrice>
+    </Item>
+    <Item>
+      <PriceUpdateTime>2026-06-01T02:36:00</PriceUpdateTime>
+      <ItemCode>2099000001236</ItemCode>
+      <ItemName>עגבניות שרי בתפזורת</ItemName>
+      <ManufactureName>כללי</ManufactureName>
+      <UnitQty>ק"ג</UnitQty>
+      <Quantity>1.00</Quantity>
+      <UnitOfMeasure>ק"ג</UnitOfMeasure>
+      <bIsWeighted>1</bIsWeighted>
+      <ItemPrice>12.90</ItemPrice>
+      <UnitOfMeasurePrice>12.90</UnitOfMeasurePrice>
+    </Item>
+    <Item>
+      <ItemCode>0</ItemCode>
+      <ItemName>שורה פגומה ללא מחיר</ItemName>
+      <ItemPrice></ItemPrice>
+    </Item>
+  </Items>
+</Root>

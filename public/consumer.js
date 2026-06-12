@@ -6,7 +6,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const productSearchInput = document.getElementById('product-search');
   const searchBtn = document.getElementById('search-btn');
   const searchResults = document.getElementById('search-results');
-  
+  const suggestDropdown = document.getElementById('suggest-dropdown');
+  const sortToggle = document.getElementById('sort-toggle');
+
   const cartList = document.getElementById('cart-list');
   const emptyCartMsg = document.getElementById('empty-cart-msg');
   const userLocationSelect = document.getElementById('user-location');
@@ -15,10 +17,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const optimizeBtn = document.getElementById('optimize-btn');
   const routesContainer = document.getElementById('routes-container');
 
-  // State Variables
-  let cart = []; // Array of { barcode, name, qty }
-  let allStores = []; // Store catalog loaded from server
-  
+  // State
+  const CART_KEY = 'shakufsal_cart';
+  let cart = loadCart();
+  let allStores = [];
+  let chainMeta = {}; // chain_id -> { name, color } from /api/v1/chains
+  let currentSort = 'cheapest';
+
   // Leaflet Map State
   let map;
   let userMarker;
@@ -26,21 +31,46 @@ document.addEventListener('DOMContentLoaded', () => {
   let mapStoreMarkers = [];
   let nearbyStoreMarkers = [];
 
-  // Coordinate dictionary
   const locationCoordinates = {
     jerusalem: { lat: 31.7680, lon: 35.2100, name: 'ירושלים' },
     tel_aviv: { lat: 32.0800, lon: 34.7800, name: 'תל אביב' },
     rehovot: { lat: 31.9000, lon: 34.8100, name: 'רחובות' },
     haifa: { lat: 32.8000, lon: 35.0000, name: 'חיפה' }
   };
+  let currentLocation = { ...locationCoordinates.jerusalem };
 
-  // Load stores from server on startup
+  function debounce(fn, ms) {
+    let t;
+    const wrapped = (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+    wrapped.cancel = () => clearTimeout(t);
+    return wrapped;
+  }
+
+  // ----- bootstrap data -----
+
+  async function loadChains() {
+    try {
+      const res = await fetch('/api/v1/chains');
+      const data = await res.json();
+      if (data.success) {
+        data.data.forEach(c => {
+          chainMeta[c.id] = { name: c.name_he, color: c.color || '#94a3b8' };
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load chains:', err);
+    }
+  }
+
   async function loadStores() {
     try {
       const res = await fetch('/api/v1/stores');
       const data = await res.json();
       if (data.success) {
-        allStores = data.data;
+        allStores = data.data.filter(s => s.latitude != null && s.longitude != null);
         renderAllNearbyStoresOnMap();
       }
     } catch (err) {
@@ -48,22 +78,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Initialize Interactive Map
+  function getChainNameHebrew(id) {
+    return (chainMeta[id] && chainMeta[id].name) || id;
+  }
+
+  function getChainColor(id) {
+    return (chainMeta[id] && chainMeta[id].color) || '#94a3b8';
+  }
+
+  // ----- map -----
+
   function initMap() {
-    const defaultCoords = locationCoordinates.jerusalem;
-    
-    // Create Leaflet Map (disable zoom controls to fit compact UI)
     map = L.map('shopper-map', {
       zoomControl: true,
       attributionControl: false
-    }).setView([defaultCoords.lat, defaultCoords.lon], 12);
+    }).setView([currentLocation.lat, currentLocation.lon], 12);
 
-    // Use dark mode theme tiles (matches dashboard style)
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19
     }).addTo(map);
 
-    // Home location icon style
     const homeIcon = L.divIcon({
       className: 'map-home-pin',
       html: `<div style="background: var(--accent-cyan); width: 14px; height: 14px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 12px var(--accent-cyan);"></div>`,
@@ -71,19 +105,18 @@ document.addEventListener('DOMContentLoaded', () => {
       iconAnchor: [7, 7]
     });
 
-    userMarker = L.marker([defaultCoords.lat, defaultCoords.lon], { icon: homeIcon }).addTo(map);
+    userMarker = L.marker([currentLocation.lat, currentLocation.lon], { icon: homeIcon }).addTo(map);
 
-    // Map click handler: updates home position
     map.on('click', (e) => {
       const { lat, lng } = e.latlng;
       updateStartLocation(lat, lng, true);
     });
   }
 
-  // Sync selector/map interactions
   function updateStartLocation(lat, lng, isFromMapClick = false) {
+    currentLocation = { lat, lon: lng, name: 'מיקום נבחר' };
     userMarker.setLatLng([lat, lng]);
-    
+
     if (isFromMapClick) {
       let customOpt = document.getElementById('custom-location-option');
       if (!customOpt) {
@@ -94,14 +127,12 @@ document.addEventListener('DOMContentLoaded', () => {
         userLocationSelect.appendChild(customOpt);
       }
       userLocationSelect.value = 'custom';
-      locationCoordinates.custom = { lat, lon: lng, name: 'מיקום מפה מותאם' };
     } else {
       map.setView([lat, lng], 12);
     }
 
     renderAllNearbyStoresOnMap();
 
-    // Re-trigger product search if search input has value to update shown results and prices
     const q = productSearchInput.value.trim();
     if (q) searchProducts(q);
   }
@@ -127,20 +158,13 @@ document.addEventListener('DOMContentLoaded', () => {
     lookupAddressBtn.disabled = true;
 
     try {
-      // Free open-source Nominatim geocoding engine (supports Hebrew queries)
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1&countrycodes=il`);
       const data = await res.json();
-      
+
       if (data && data.length > 0) {
         const found = data[0];
-        const lat = parseFloat(found.lat);
-        const lon = parseFloat(found.lon);
-        
-        // Update user start position
-        updateStartLocation(lat, lon, true);
-        map.setView([lat, lon], 14); // Zoom in closer for specific address
-        
-        // Visual feedback
+        updateStartLocation(parseFloat(found.lat), parseFloat(found.lon), true);
+        map.setView([parseFloat(found.lat), parseFloat(found.lon)], 14);
         addressInput.style.borderColor = 'var(--accent-green)';
         setTimeout(() => addressInput.style.borderColor = 'var(--border-color)', 2000);
       } else {
@@ -160,7 +184,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') lookupAddress();
   });
 
-  // GPS Geolocation Detector
   gpsLocationBtn.addEventListener('click', () => {
     if (!navigator.geolocation) {
       alert('דפדפן זה אינו תומך בזיהוי מיקום GPS.');
@@ -172,11 +195,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        
-        updateStartLocation(lat, lon, true);
-        map.setView([lat, lon], 14);
+        updateStartLocation(position.coords.latitude, position.coords.longitude, true);
+        map.setView([position.coords.latitude, position.coords.longitude], 14);
 
         gpsLocationBtn.innerHTML = '<i data-lucide="check" style="width: 12px; height: 12px; color:var(--accent-green)"></i> זוהה!';
         lucide.createIcons();
@@ -199,41 +219,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Haversine Distance Calculator (km)
   function calculateDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Earth radius in km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
+    const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
       Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  // Get stores within distance limit from user starting coordinates
   function getNearbyStores() {
-    const locKey = userLocationSelect.value;
-    const userLoc = locationCoordinates[locKey] || locationCoordinates.custom || locationCoordinates.jerusalem;
     const maxDistLimit = parseFloat(maxDistanceSlider.value);
-    
-    return allStores.map(store => {
-      const dist = calculateDistance(userLoc.lat, userLoc.lon, store.latitude, store.longitude);
-      return { ...store, distance: dist };
-    }).filter(store => store.distance <= maxDistLimit);
+    return allStores.map(store => ({
+      ...store,
+      distance: calculateDistance(currentLocation.lat, currentLocation.lon, store.latitude, store.longitude)
+    })).filter(store => store.distance <= maxDistLimit)
+      .sort((a, b) => a.distance - b.distance);
   }
 
-  // Draw all supermarkets within radius on map immediately
   function renderAllNearbyStoresOnMap() {
-    // Clear previous store markers (but keep user start marker)
     nearbyStoreMarkers.forEach(m => map.removeLayer(m));
     nearbyStoreMarkers = [];
-    
-    // Clear route layers since user configuration changed
     routeLines.forEach(l => map.removeLayer(l));
     routeLines = [];
-    
+
     const nearby = getNearbyStores();
-    
+
     nearby.forEach(store => {
       const storeColor = getChainColor(store.chain_id);
       const storeIcon = L.divIcon({
@@ -251,83 +263,99 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         `, { closeButton: false })
         .addTo(map);
-      
+
       nearbyStoreMarkers.push(marker);
     });
 
-    // Auto fit map bounds to contain user home and all stores within radius
     if (nearby.length > 0) {
-      const locKey = userLocationSelect.value;
-      const userLoc = locationCoordinates[locKey] || locationCoordinates.custom || locationCoordinates.jerusalem;
-      const coords = [[userLoc.lat, userLoc.lon], ...nearby.map(s => [s.latitude, s.longitude])];
+      const coords = [[currentLocation.lat, currentLocation.lon], ...nearby.map(s => [s.latitude, s.longitude])];
       map.fitBounds(L.latLngBounds(coords), { padding: [40, 40] });
     }
   }
 
-  // Product Search with Scoped Unit Price Sorting
+  // ----- autocomplete -----
+
+  const runSuggest = debounce(async () => {
+    const q = productSearchInput.value.trim();
+    if (q.length < 2) {
+      suggestDropdown.classList.remove('open');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/v1/search/suggest?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!data.success || !data.data.length) {
+        suggestDropdown.classList.remove('open');
+        return;
+      }
+      suggestDropdown.innerHTML = '';
+      data.data.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'suggest-item';
+        row.innerHTML = `<span class="suggest-name"></span><span class="suggest-brand"></span>`;
+        row.querySelector('.suggest-name').textContent = item.name;
+        row.querySelector('.suggest-brand').textContent = item.brand || '';
+        row.addEventListener('click', () => {
+          productSearchInput.value = item.name;
+          suggestDropdown.classList.remove('open');
+          searchProducts(item.name);
+        });
+        suggestDropdown.appendChild(row);
+      });
+      suggestDropdown.classList.add('open');
+    } catch (err) {
+      suggestDropdown.classList.remove('open');
+    }
+  }, 200);
+
+  productSearchInput.addEventListener('input', runSuggest);
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-input-wrapper')) suggestDropdown.classList.remove('open');
+  });
+
+  // ----- sort toggle -----
+
+  if (sortToggle) {
+    sortToggle.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-sort]');
+      if (!btn) return;
+      currentSort = btn.dataset.sort;
+      sortToggle.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('active', b === btn));
+      const q = productSearchInput.value.trim();
+      if (q) searchProducts(q);
+    });
+  }
+
+  // ----- product search (server-side, cheapest-nearby-first) -----
+
   async function searchProducts(query) {
     try {
+      runSuggest.cancel(); // a pending debounced suggest must not reopen over results
+      suggestDropdown.classList.remove('open');
       searchResults.innerHTML = '<div class="loading-placeholder">מחפש מוצרים במאגר...</div>';
-      
-      const res = await fetch(`/api/v1/products?query=${encodeURIComponent(query)}`);
+
+      const radius = parseFloat(maxDistanceSlider.value);
+      const params = new URLSearchParams({
+        q: query,
+        lat: currentLocation.lat,
+        lon: currentLocation.lon,
+        radius_km: radius,
+        sort: currentSort,
+        limit: 60
+      });
+      const res = await fetch(`/api/v1/search?${params}`);
       const data = await res.json();
-      
-      if (!data.success || data.count === 0) {
-        searchResults.innerHTML = '<div class="loading-placeholder">לא נמצאו מוצרים תואמים</div>';
+
+      if (!data.success) {
+        searchResults.innerHTML = '<div class="loading-placeholder">שגיאה בביצוע החיפוש</div>';
+        return;
+      }
+      if (data.count === 0) {
+        searchResults.innerHTML = `<div class="loading-placeholder">${data.message || 'לא נמצאו מוצרים תואמים בסניפים שברדיוס הנבחר'}</div>`;
         return;
       }
 
-      // Limit to first 100 matches to prevent parallel request flood in browser
-      const productList = data.data.slice(0, 100);
-      const pricePromises = productList.map(p => 
-        fetch(`/api/v1/prices?barcode=${p.barcode}`).then(r => r.json())
-      );
-      
-      const priceResults = await Promise.all(pricePromises);
-      
-      // Get nearby stores to scope results
-      const nearbyStores = getNearbyStores();
-      const nearbyStoreIds = new Set(nearbyStores.map(s => s.id));
-      
-      // Enrich each product with price statistics in nearby stores only
-      const enrichedProducts = productList.map((prod, idx) => {
-        const pricesPayload = priceResults[idx];
-        const storePrices = pricesPayload.success ? pricesPayload.data : [];
-        
-        // Only include prices from stores within selected driving distance
-        const localPrices = storePrices.filter(priceRec => nearbyStoreIds.has(priceRec.store_id));
-        
-        // Enrich prices with distance coordinates and sort cheapest first
-        const localPricesEnriched = localPrices.map(priceRec => {
-          const storeObj = nearbyStores.find(s => s.id === priceRec.store_id);
-          return {
-            ...priceRec,
-            distance: storeObj ? storeObj.distance : 999
-          };
-        });
-
-        localPricesEnriched.sort((a, b) => a.price - b.price);
-        
-        const cheapestRecord = localPricesEnriched[0] || null;
-        
-        return {
-          ...prod,
-          cheapestPriceRecord: cheapestRecord,
-          minUnitPrice: cheapestRecord ? cheapestRecord.unit_price : 999999,
-          allLocalPrices: localPricesEnriched
-        };
-      }).filter(prod => prod.cheapestPriceRecord !== null); // ONLY show products in those branches
-
-      if (enrichedProducts.length === 0) {
-        searchResults.innerHTML = '<div class="loading-placeholder">אין מוצרים זמינים בסניפים שברדיוס הנבחר</div>';
-        return;
-      }
-
-      // Sort products by cheapest unit price (cheapest per 100 grams/units first)
-      enrichedProducts.sort((a, b) => a.minUnitPrice - b.minUnitPrice);
-
-      renderProducts(enrichedProducts);
-
+      renderProducts(data.data);
     } catch (err) {
       console.error(err);
       searchResults.innerHTML = '<div class="loading-placeholder">שגיאה בביצוע החיפוש</div>';
@@ -336,69 +364,74 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderProducts(productList) {
     searchResults.innerHTML = '';
-    
+
     productList.forEach(prod => {
       const card = document.createElement('div');
       card.className = 'product-card';
-      
-      // Format pricing block
-      let pricingHtml = '';
-      if (prod.allLocalPrices && prod.allLocalPrices.length > 0) {
-        const pricesListHtml = prod.allLocalPrices.map((p, idx) => {
-          const isCheapest = idx === 0;
-          const chainColor = getChainColor(p.store_id.split('_')[0]);
-          return `
-            <div class="store-price-row ${isCheapest ? 'cheapest-row' : ''}">
-              <div class="store-info-col">
-                <span class="chain-dot" style="background: ${chainColor};"></span>
-                <span class="store-name-text">${p.chain_name} (${p.store_name})</span>
-                <span class="store-dist-text">(${p.distance.toFixed(1)} ק"מ)</span>
-              </div>
-              <div class="price-col">
-                ${isCheapest ? '<span class="cheapest-tag">הכי זול</span>' : ''}
-                <span class="price-val">₪${p.price.toFixed(2)}</span>
-              </div>
-            </div>
-          `;
-        }).join('');
 
-        pricingHtml = `
-          <div class="product-pricing-box">
-            <div class="unit-price-badge">
-              <span class="label">מחיר ל-100 ${prod.unit_of_measure || 'יחידה'}:</span>
-              <span class="value">₪${prod.minUnitPrice.toFixed(2)}</span>
-            </div>
-            <div class="store-prices-list">
-              ${pricesListHtml}
-            </div>
-          </div>
-        `;
-      } else {
-        pricingHtml = `
-          <div class="product-pricing-box" style="text-align: center; color: var(--text-muted); font-size: 11px;">
-            אין מחיר זמין בסניפים הקרובים
-          </div>
-        `;
-      }
+      const chainColor = getChainColor(prod.best_store_chain_id);
+      const hasPromo = !!prod.is_promo;
+      const distance = prod.best_store_distance_km != null
+        ? `· ${prod.best_store_distance_km.toFixed(1)} ק"מ` : '';
+      const rangeText = prod.store_count > 1
+        ? `₪${prod.best_price.toFixed(2)}–₪${prod.max_price.toFixed(2)} ב-${prod.store_count} סניפים`
+        : 'סניף אחד ברדיוס';
 
       card.innerHTML = `
         <div class="product-meta">
-          <span class="product-brand-tag">${prod.brand} | ${prod.manufacturer}</span>
-          <h4 class="product-title">${prod.name}</h4>
-          <span class="product-weight">גודל: ${prod.unit_qty} ${prod.unit_of_measure || 'יחידה'} | ברקוד: ${prod.barcode}</span>
+          <span class="product-brand-tag"></span>
+          <h4 class="product-title"></h4>
+          <span class="product-weight"></span>
         </div>
-        
-        ${pricingHtml}
-        
-        <button class="btn-add-cart" data-barcode="${prod.barcode}">
-          <i data-lucide="plus" style="width: 14px; height: 14px;"></i>
-          הוסף לעגלת הקניות
-        </button>
+
+        <div class="best-price-box ${hasPromo ? 'has-promo' : ''}">
+          <div class="best-price-row">
+            <span class="best-price">₪${prod.best_price.toFixed(2)}</span>
+            ${hasPromo ? `<span class="regular-price-strike">₪${prod.best_regular_price.toFixed(2)}</span>` : ''}
+            ${hasPromo ? '<span class="promo-pill">מבצע</span>' : ''}
+            ${hasPromo && prod.requires_club ? '<span class="club-pill">מועדון</span>' : ''}
+          </div>
+          <div class="best-store-row">
+            <span class="chain-dot" style="background: ${chainColor};"></span>
+            <span class="best-store-text"></span>
+          </div>
+          ${hasPromo && prod.promo_description ? `<div class="promo-desc-row"></div>` : ''}
+          <div class="price-meta-row">
+            <span class="range-text">${rangeText}</span>
+            <span class="unit-text">₪${(prod.best_unit_price ?? 0).toFixed(2)} ל-100 ${prod.unit_of_measure || 'יח׳'}</span>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button class="btn-add-cart">
+            <i data-lucide="plus" style="width: 14px; height: 14px;"></i>
+            הוסף לעגלה
+          </button>
+          <button class="btn-compare">
+            <i data-lucide="bar-chart-3" style="width: 14px; height: 14px;"></i>
+            השוואת סניפים
+          </button>
+        </div>
+        <div class="store-prices-list compare-list" hidden></div>
       `;
 
-      card.querySelector('.btn-add-cart').addEventListener('click', () => {
-        addToCart(prod);
-      });
+      // textContent for feed-sourced strings (defense against markup in names)
+      card.querySelector('.product-brand-tag').textContent =
+        [prod.brand, prod.manufacturer].filter(Boolean).join(' | ') || 'ללא מותג';
+      card.querySelector('.product-title').textContent = prod.name;
+      card.querySelector('.product-weight').textContent =
+        `גודל: ${prod.unit_qty || '?'} ${prod.unit_of_measure || ''} | ברקוד: ${prod.barcode}`;
+      card.querySelector('.best-store-text').textContent =
+        `${prod.best_store_chain || ''} ${prod.best_store_name || ''} ${distance}`;
+      if (hasPromo && prod.promo_description) {
+        const promoRow = card.querySelector('.promo-desc-row');
+        promoRow.textContent = prod.promo_description +
+          (prod.promo_end ? ` (עד ${prod.promo_end.slice(0, 10)})` : '');
+      }
+
+      card.querySelector('.btn-add-cart').addEventListener('click', () => addToCart(prod));
+      card.querySelector('.btn-compare').addEventListener('click', () =>
+        toggleCompare(card, prod));
 
       searchResults.appendChild(card);
     });
@@ -406,18 +439,88 @@ document.addEventListener('DOMContentLoaded', () => {
     lucide.createIcons();
   }
 
-  // Shopping Cart Operations
+  // Lazy per-product branch comparison via the batch endpoint.
+  async function toggleCompare(card, prod) {
+    const list = card.querySelector('.compare-list');
+    if (!list.hidden) {
+      list.hidden = true;
+      return;
+    }
+    list.hidden = false;
+    list.innerHTML = '<div class="loading-placeholder" style="padding:8px;">טוען מחירים מכל הסניפים...</div>';
+
+    const nearby = getNearbyStores();
+    const distById = new Map(nearby.map(s => [s.id, s.distance]));
+    try {
+      const res = await fetch('/api/v1/prices/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          barcodes: [prod.barcode],
+          store_ids: nearby.slice(0, 600).map(s => s.id)
+        })
+      });
+      const data = await res.json();
+      if (!data.success || !data.data.length) {
+        list.innerHTML = '<div class="loading-placeholder" style="padding:8px;">אין מחירים זמינים</div>';
+        return;
+      }
+      const rows = data.data.sort((a, b) => a.effective_price - b.effective_price);
+      list.innerHTML = '';
+      rows.forEach((p, idx) => {
+        const row = document.createElement('div');
+        row.className = `store-price-row ${idx === 0 ? 'cheapest-row' : ''}`;
+        const dist = distById.get(p.store_id);
+        const multibuy = p.multibuy_qty
+          ? `<span class="multibuy-note">${p.multibuy_qty} ב-₪${p.multibuy_total.toFixed(2)}</span>` : '';
+        row.innerHTML = `
+          <div class="store-info-col">
+            <span class="chain-dot" style="background: ${getChainColor(p.chain_id)};"></span>
+            <span class="store-name-text"></span>
+            <span class="store-dist-text">${dist != null ? `(${dist.toFixed(1)} ק"מ)` : ''}</span>
+          </div>
+          <div class="price-col">
+            ${idx === 0 ? '<span class="cheapest-tag">הכי זול</span>' : ''}
+            ${p.is_promo ? '<span class="promo-pill small">מבצע</span>' : ''}
+            ${multibuy}
+            <span class="price-val">₪${p.effective_price.toFixed(2)}</span>
+            ${p.is_promo ? `<span class="regular-price-strike small">₪${p.price.toFixed(2)}</span>` : ''}
+          </div>
+        `;
+        row.querySelector('.store-name-text').textContent = `${p.chain_name} (${p.store_name})`;
+        list.appendChild(row);
+      });
+    } catch (err) {
+      list.innerHTML = '<div class="loading-placeholder" style="padding:8px;">שגיאה בטעינת המחירים</div>';
+    }
+  }
+
+  // ----- shopping cart (persisted) -----
+
+  function loadCart() {
+    try {
+      const raw = localStorage.getItem(CART_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function saveCart() {
+    try {
+      localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    } catch (err) { /* storage full/blocked — cart stays in memory */ }
+  }
+
   function addToCart(product) {
     const existing = cart.find(item => item.barcode === product.barcode);
     if (existing) {
       existing.qty += 1;
     } else {
-      cart.push({
-        barcode: product.barcode,
-        name: product.name,
-        qty: 1
-      });
+      cart.push({ barcode: product.barcode, name: product.name, qty: 1 });
     }
+    saveCart();
     renderCart();
   }
 
@@ -433,7 +536,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const li = document.createElement('li');
       li.className = 'cart-item';
       li.innerHTML = `
-        <span class="cart-item-name">${item.name}</span>
+        <span class="cart-item-name"></span>
         <div class="cart-item-actions">
           <button class="cart-qty-btn minus">-</button>
           <span class="cart-item-qty">${item.qty}</span>
@@ -443,11 +546,10 @@ document.addEventListener('DOMContentLoaded', () => {
           </button>
         </div>
       `;
-
+      li.querySelector('.cart-item-name').textContent = item.name;
       li.querySelector('.minus').addEventListener('click', () => updateCartQty(item.barcode, -1));
       li.querySelector('.plus').addEventListener('click', () => updateCartQty(item.barcode, 1));
       li.querySelector('.cart-remove-btn').addEventListener('click', () => removeFromCart(item.barcode));
-
       cartList.appendChild(li);
     });
 
@@ -461,6 +563,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (item.qty <= 0) {
         removeFromCart(barcode);
       } else {
+        saveCart();
         renderCart();
       }
     }
@@ -468,13 +571,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function removeFromCart(barcode) {
     cart = cart.filter(i => i.barcode !== barcode);
+    saveCart();
     renderCart();
   }
 
-  // Slider events
+  // ----- distance slider -----
+
+  const debouncedMapRender = debounce(renderAllNearbyStoresOnMap, 250);
   maxDistanceSlider.addEventListener('input', () => {
     distanceValSpan.innerText = `${maxDistanceSlider.value} ק"מ`;
-    renderAllNearbyStoresOnMap();
+    debouncedMapRender();
   });
 
   maxDistanceSlider.addEventListener('change', () => {
@@ -482,31 +588,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (q) searchProducts(q);
   });
 
-  function getChainNameHebrew(id) {
-    const names = {
-      shufersal: 'שופרסל',
-      rami_levy: 'רמי לוי',
-      yohananof: 'יוחננוף',
-      victory: 'ויקטורי',
-      tiv_taam: 'טיב טעם'
-    };
-    return names[id] || id;
-  }
+  // ----- route drawing -----
 
-  function getChainColor(id) {
-    const colors = {
-      shufersal: '#ef4444',
-      rami_levy: '#f59e0b',
-      yohananof: '#8b5cf6',
-      victory: '#06b6d4',
-      tiv_taam: '#10b981'
-    };
-    return colors[id] || '#ffffff';
-  }
-
-  // Draw optimized route on Leaflet map
   function drawRouteOnMap(route, userLoc) {
-    // Clear existing route layers
     routeLines.forEach(l => map.removeLayer(l));
     mapStoreMarkers.forEach(m => map.removeLayer(m));
     routeLines = [];
@@ -514,13 +598,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!route || route.length === 0) return;
 
-    // Compile coordinate array: Home -> Store 1 -> Store 2 -> Home
     const coords = [[userLoc.lat, userLoc.lon]];
-    
+
     route.forEach((store, idx) => {
       coords.push([store.latitude, store.longitude]);
 
-      // Add a custom marker for the store
       const storeColor = getChainColor(store.chain_id);
       const storeIcon = L.divIcon({
         className: 'map-store-pin',
@@ -541,13 +623,12 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         `, { closeButton: false })
         .addTo(map);
-      
+
       mapStoreMarkers.push(marker);
     });
 
     coords.push([userLoc.lat, userLoc.lon]);
 
-    // Draw the polyline routing loop
     const polyline = L.polyline(coords, {
       color: 'var(--accent-cyan)',
       weight: 3,
@@ -556,20 +637,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }).addTo(map);
 
     routeLines.push(polyline);
-
-    // Fit map bounds to contain user home and all stores
-    const bounds = L.latLngBounds(coords);
-    map.fitBounds(bounds, { padding: [30, 30] });
-
-    // Open first store popup for clarity
-    if (mapStoreMarkers.length > 0) {
-      mapStoreMarkers[0].openPopup();
-    }
+    map.fitBounds(L.latLngBounds(coords), { padding: [30, 30] });
+    if (mapStoreMarkers.length > 0) mapStoreMarkers[0].openPopup();
   }
 
-  let currentOptimalPurchases = {}; // Global reference for map popups
+  let currentOptimalPurchases = {};
 
-  // Smart Cart Routing Optimization Algorithm
+  // ----- basket optimization -----
+  // One batch call for the whole cart, then exhaustive 1/2/3-store combos over
+  // a candidate pool (union of each item's cheapest stores, capped) so the
+  // search stays fast with 14 chains' worth of nearby branches.
+
   optimizeBtn.addEventListener('click', async () => {
     if (cart.length === 0) {
       routesContainer.innerHTML = `
@@ -584,73 +662,106 @@ document.addEventListener('DOMContentLoaded', () => {
 
     routesContainer.innerHTML = '<div class="routing-placeholder-msg">מחשב מסלולי נסיעה ומתמחר סלים אופטימליים...</div>';
 
-    // 1. Fetch prices for all items in the cart in parallel
-    const pricePromises = cart.map(item => fetch(`/api/v1/prices?barcode=${item.barcode}`).then(res => res.json()));
-    
+    const userLoc = currentLocation;
+    const maxDistLimit = parseFloat(maxDistanceSlider.value);
+    const nearStores = getNearbyStores();
+
+    if (nearStores.length === 0) {
+      routesContainer.innerHTML = `
+        <div class="routing-placeholder-msg" style="color:var(--accent-red);">
+          <i data-lucide="info"></i>
+          לא נמצאו סניפים ברדיוס של ${maxDistLimit} ק"מ. נסה להגדיל את המרחק המבוקש.
+        </div>
+      `;
+      lucide.createIcons();
+      return;
+    }
+
     try {
-      const priceResults = await Promise.all(pricePromises);
-      const barcodePricesMap = {};
-      
-      cart.forEach((item, idx) => {
-        const res = priceResults[idx];
-        barcodePricesMap[item.barcode] = res.success ? res.data : [];
+      // 1. One batch price call: every cart item × every nearby store.
+      const res = await fetch('/api/v1/prices/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          barcodes: cart.map(i => i.barcode),
+          store_ids: nearStores.slice(0, 600).map(s => s.id)
+        })
+      });
+      const payload = await res.json();
+      if (!payload.success) throw new Error(payload.error || 'batch pricing failed');
+
+      // barcode -> store_id -> effective price record
+      const priceMap = new Map();
+      payload.data.forEach(rec => {
+        if (!priceMap.has(rec.barcode)) priceMap.set(rec.barcode, new Map());
+        priceMap.get(rec.barcode).set(rec.store_id, rec);
       });
 
-      // 2. Identify selected user location coordinates
-      const locKey = userLocationSelect.value;
-      const userLoc = locationCoordinates[locKey] || locationCoordinates.custom || locationCoordinates.jerusalem;
-      const maxDistLimit = parseFloat(maxDistanceSlider.value);
+      // 2. Candidate pool: the 8 cheapest stores per item, capped at 25 total.
+      const poolIds = new Set();
+      cart.forEach(item => {
+        const stores = priceMap.get(item.barcode);
+        if (!stores) return;
+        [...stores.values()]
+          .sort((a, b) => a.effective_price - b.effective_price)
+          .slice(0, 8)
+          .forEach(rec => poolIds.add(rec.store_id));
+      });
+      let pool = nearStores.filter(s => poolIds.has(s.id));
+      if (pool.length > 25) pool = pool.slice(0, 25); // nearStores is distance-sorted
 
-      // 3. Filter stores within driving radius limit
-      const nearStores = getNearbyStores();
-
-      if (nearStores.length === 0) {
+      if (pool.length === 0) {
         routesContainer.innerHTML = `
           <div class="routing-placeholder-msg" style="color:var(--accent-red);">
-            <i data-lucide="info"></i>
-            לא נמצאו סניפים ברדיוס של ${maxDistLimit} ק"מ. נסה להגדיל את המרחק המבוקש.
+            <i data-lucide="package-x"></i>
+            אף אחד מהמוצרים בעגלה אינו זמין בסניפים שברדיוס.
           </div>
         `;
         lucide.createIcons();
         return;
       }
 
-      // 4. Generate permutations and calculate routes
-      const options = [];
+      // 3. Pairwise distance matrix, computed once.
+      const pairDist = new Map();
+      const pairKey = (a, b) => a < b ? `${a}|${b}` : `${b}|${a}`;
+      for (let i = 0; i < pool.length; i++) {
+        for (let j = i + 1; j < pool.length; j++) {
+          pairDist.set(pairKey(pool[i].id, pool[j].id),
+            calculateDistance(pool[i].latitude, pool[i].longitude,
+                              pool[j].latitude, pool[j].longitude));
+        }
+      }
+      const distBetween = (a, b) => pairDist.get(pairKey(a.id, b.id)) || 0;
 
-      const DRIVING_COST_PER_KM = 1.5; 
+      const DRIVING_COST_PER_KM = 1.5;
       const OUT_OF_STOCK_PENALTY = 50.0;
 
-      // Helper function to evaluate combinations
       function evaluateStoreSet(storeSet, type) {
         let totalItemsCost = 0;
-        let missingItems = [];
+        const missingItems = [];
         const purchaseListByStore = {};
-
         storeSet.forEach(s => purchaseListByStore[s.id] = []);
 
-        // Distribute cart items to the cheapest available store in this set
         cart.forEach(cartItem => {
-          let cheapestPrice = Infinity;
+          let cheapest = Infinity;
           let targetStoreId = null;
+          let promo = false;
 
           storeSet.forEach(store => {
-            const storePrices = barcodePricesMap[cartItem.barcode] || [];
-            const itemPriceRecord = storePrices.find(p => p.store_id === store.id);
-            if (itemPriceRecord && itemPriceRecord.price < cheapestPrice) {
-              cheapestPrice = itemPriceRecord.price;
+            const rec = priceMap.get(cartItem.barcode)?.get(store.id);
+            if (rec && rec.effective_price < cheapest) {
+              cheapest = rec.effective_price;
               targetStoreId = store.id;
+              promo = !!rec.is_promo;
             }
           });
 
           if (targetStoreId !== null) {
-            const cost = cheapestPrice * cartItem.qty;
+            const cost = cheapest * cartItem.qty;
             totalItemsCost += cost;
             purchaseListByStore[targetStoreId].push({
-              name: cartItem.name,
-              qty: cartItem.qty,
-              price: cheapestPrice,
-              total: cost
+              name: cartItem.name, qty: cartItem.qty,
+              price: cheapest, total: cost, promo
             });
           } else {
             missingItems.push(cartItem.name);
@@ -658,32 +769,19 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         });
 
-        // Calculate optimal route sequence (TSP)
         let bestDistance = Infinity;
         let bestRouteSeq = [];
 
         if (storeSet.length === 1) {
           bestDistance = storeSet[0].distance * 2;
           bestRouteSeq = [storeSet[0]];
-        } 
-        else if (storeSet.length === 2) {
-          const distBetweenStores = calculateDistance(storeSet[0].latitude, storeSet[0].longitude, storeSet[1].latitude, storeSet[1].longitude);
-          bestDistance = storeSet[0].distance + distBetweenStores + storeSet[1].distance;
+        } else if (storeSet.length === 2) {
+          bestDistance = storeSet[0].distance + distBetween(storeSet[0], storeSet[1]) + storeSet[1].distance;
           bestRouteSeq = [storeSet[0], storeSet[1]];
-        } 
-        else if (storeSet.length === 3) {
-          const permutations = [
-            [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]
-          ];
-          permutations.forEach(p => {
-            const s0 = storeSet[p[0]];
-            const s1 = storeSet[p[1]];
-            const s2 = storeSet[p[2]];
-            const d1 = s0.distance;
-            const d2 = calculateDistance(s0.latitude, s0.longitude, s1.latitude, s1.longitude);
-            const d3 = calculateDistance(s1.latitude, s1.longitude, s2.latitude, s2.longitude);
-            const d4 = s2.distance;
-            const totalD = d1 + d2 + d3 + d4;
+        } else if (storeSet.length === 3) {
+          [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]].forEach(p => {
+            const [s0, s1, s2] = [storeSet[p[0]], storeSet[p[1]], storeSet[p[2]]];
+            const totalD = s0.distance + distBetween(s0, s1) + distBetween(s1, s2) + s2.distance;
             if (totalD < bestDistance) {
               bestDistance = totalD;
               bestRouteSeq = [s0, s1, s2];
@@ -692,77 +790,64 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const travelCost = bestDistance * DRIVING_COST_PER_KM;
-        const totalOverallCost = totalItemsCost + travelCost;
-
         return {
-          type,
-          storeSet,
-          route: bestRouteSeq,
+          type, storeSet, route: bestRouteSeq,
           totalDistance: bestDistance,
           totalItemCost: totalItemsCost - (missingItems.length * OUT_OF_STOCK_PENALTY),
           travelCost,
-          totalCost: totalOverallCost,
+          totalCost: totalItemsCost + travelCost,
           missingItems,
           purchases: purchaseListByStore
         };
       }
 
-      // 4a. Find Cheapest Single Store Visit
+      const options = [];
+
       let bestSingle = null;
-      nearStores.forEach(s => {
+      pool.forEach(s => {
         const option = evaluateStoreSet([s], 'single');
-        if (!bestSingle || option.totalCost < bestSingle.totalCost) {
-          bestSingle = option;
-        }
+        if (!bestSingle || option.totalCost < bestSingle.totalCost) bestSingle = option;
       });
       if (bestSingle) options.push(bestSingle);
 
-      // 4b. Find Cheapest 2-Store Split
-      if (nearStores.length >= 2) {
+      if (pool.length >= 2) {
         let bestDouble = null;
-        for (let i = 0; i < nearStores.length; i++) {
-          for (let j = i + 1; j < nearStores.length; j++) {
-            const option = evaluateStoreSet([nearStores[i], nearStores[j]], 'double');
-            if (!bestDouble || option.totalCost < bestDouble.totalCost) {
-              bestDouble = option;
-            }
+        for (let i = 0; i < pool.length; i++) {
+          for (let j = i + 1; j < pool.length; j++) {
+            const option = evaluateStoreSet([pool[i], pool[j]], 'double');
+            if (!bestDouble || option.totalCost < bestDouble.totalCost) bestDouble = option;
           }
         }
         if (bestDouble) options.push(bestDouble);
       }
 
-      // 4c. Find Cheapest 3-Store Split
-      if (nearStores.length >= 3) {
+      if (pool.length >= 3) {
         let bestTriple = null;
-        for (let i = 0; i < nearStores.length; i++) {
-          for (let j = i + 1; j < nearStores.length; j++) {
-            for (let k = j + 1; k < nearStores.length; k++) {
-              const option = evaluateStoreSet([nearStores[i], nearStores[j], nearStores[k]], 'triple');
-              if (!bestTriple || option.totalCost < bestTriple.totalCost) {
-                bestTriple = option;
-              }
+        for (let i = 0; i < pool.length; i++) {
+          for (let j = i + 1; j < pool.length; j++) {
+            for (let k = j + 1; k < pool.length; k++) {
+              const option = evaluateStoreSet([pool[i], pool[j], pool[k]], 'triple');
+              if (!bestTriple || option.totalCost < bestTriple.totalCost) bestTriple = option;
             }
           }
         }
         if (bestTriple) options.push(bestTriple);
       }
 
-      // 5. Sort options by total score (overall cheapest) and mark the winner
       if (options.length === 0) {
         routesContainer.innerHTML = '<div class="routing-placeholder-msg">שגיאה בחישוב המסלולים.</div>';
         return;
       }
 
       options.sort((a, b) => a.totalCost - b.totalCost);
-      const cheapestOptionIndex = 0;
 
-      // 6. Render Route Cards
+      // Render route cards
       routesContainer.innerHTML = '';
-      
+
       options.forEach((opt, idx) => {
-        const isOverallCheapest = idx === cheapestOptionIndex;
+        const isOverallCheapest = idx === 0;
         const card = document.createElement('div');
-        
+
         let typeBadge = '';
         let typeTitle = '';
         let cardBorderClass = '';
@@ -775,7 +860,7 @@ document.addEventListener('DOMContentLoaded', () => {
           typeTitle = 'פיצול ל-2 חנויות';
           typeBadge = 'double';
           cardBorderClass = 'double';
-        } else if (opt.type === 'triple') {
+        } else {
           typeTitle = 'פיצול ל-3 חנויות';
           typeBadge = 'double';
           cardBorderClass = 'double';
@@ -787,13 +872,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         card.className = `route-card ${cardBorderClass}`;
-        
-        // Build route steps markup
+
         let stepsHtml = '';
         opt.route.forEach((store, stepIdx) => {
           const itemsBought = opt.purchases[store.id] || [];
-          let itemsListStr = itemsBought.map(i => `${i.name} (x${i.qty}) - ₪${(i.price * i.qty).toFixed(2)}`).join(', ');
-          
+          let itemsListStr = itemsBought
+            .map(i => `${i.name} (x${i.qty}) - ₪${(i.price * i.qty).toFixed(2)}${i.promo ? ' 🏷️' : ''}`)
+            .join(', ');
+
           if (itemsBought.length === 0) {
             itemsListStr = '<span style="color:var(--text-muted);">אין פריטים לקנייה בסניף זה</span>';
           }
@@ -821,11 +907,9 @@ document.addEventListener('DOMContentLoaded', () => {
           `;
         }
 
-        // Generate Google Maps multi-stop navigation URL
         const originCoords = `${userLoc.lat},${userLoc.lon}`;
-        const destCoords = originCoords; // Loop back home
         const waypointsStr = opt.route.map(store => `${store.latitude},${store.longitude}`).join('|');
-        const gmapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${originCoords}&destination=${destCoords}&waypoints=${encodeURIComponent(waypointsStr)}&travelmode=driving`;
+        const gmapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${originCoords}&destination=${originCoords}&waypoints=${encodeURIComponent(waypointsStr)}&travelmode=driving`;
 
         card.innerHTML = `
           <div class="route-header">
@@ -867,17 +951,13 @@ document.addEventListener('DOMContentLoaded', () => {
           </div>
         `;
 
-        // Bind interactive events
         card.querySelector('.btn-draw-map').addEventListener('click', () => {
           currentOptimalPurchases = opt.purchases;
           drawRouteOnMap(opt.route, userLoc);
-          
-          // Add border highlight to active card
           document.querySelectorAll('.route-card').forEach(c => c.style.borderColor = 'var(--border-color)');
           card.style.borderColor = 'var(--accent-cyan)';
         });
 
-        // Trigger mapping default for the cheapest option
         if (isOverallCheapest) {
           currentOptimalPurchases = opt.purchases;
           drawRouteOnMap(opt.route, userLoc);
@@ -887,7 +967,6 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       lucide.createIcons();
-
     } catch (err) {
       console.error(err);
       routesContainer.innerHTML = '<div class="routing-placeholder-msg" style="color:var(--accent-red);">שגיאה בתמחור וניתוב סל הקניות.</div>';
@@ -904,7 +983,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Init
-  loadStores();
+  Promise.all([loadChains(), loadStores()]).then(() => {
+    renderCart();
+    searchProducts(productSearchInput.value.trim() || 'קוטג');
+  });
   initMap();
-  searchProducts('קוטג');
 });

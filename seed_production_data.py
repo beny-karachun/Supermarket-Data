@@ -1,92 +1,42 @@
-import sqlite3
+"""Seeds SYNTHETIC demo data into a FRESH database (5 chains, ~570 stores,
+demo products/prices/promotions). Real data comes from `python -m pipeline.run`
+— never mix the two. Requires the --demo flag as confirmation.
+"""
+import argparse
 import random
-import os
+import sys
+from datetime import datetime, timedelta
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'database.db')
+from pipeline.db import get_conn, rebuild_fts
+from pipeline.migrate import migrate
 
-def seed_database():
-    print(f"Creating and seeding production database at: {DB_PATH}")
-    conn = sqlite3.connect(DB_PATH)
+
+def seed_database(db_path=None):
+    migrate(db_path)
+    conn = get_conn(db_path)
     cursor = conn.cursor()
 
-    # 1. Create Tables
-    cursor.execute("DROP TABLE IF EXISTS chains")
-    cursor.execute("""
-        CREATE TABLE chains (
-            id TEXT PRIMARY KEY,
-            name_he TEXT NOT NULL,
-            logo_url TEXT,
-            base_url TEXT,
-            auth_type TEXT
-        )
-    """)
+    existing = cursor.execute('SELECT count(*) FROM products').fetchone()[0]
+    if existing:
+        print(f'Refusing to seed: database already contains {existing} products.')
+        print('Demo data is for fresh databases only (pass --db <new path>).')
+        conn.close()
+        sys.exit(1)
 
-    cursor.execute("DROP TABLE IF EXISTS stores")
-    cursor.execute("""
-        CREATE TABLE stores (
-            id TEXT PRIMARY KEY,
-            chain_id TEXT NOT NULL,
-            store_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            address TEXT NOT NULL,
-            city TEXT NOT NULL,
-            latitude REAL NOT NULL,
-            longitude REAL NOT NULL,
-            FOREIGN KEY(chain_id) REFERENCES chains(id)
-        )
-    """)
+    print('Seeding synthetic demo data...')
 
-    cursor.execute("DROP TABLE IF EXISTS products")
-    cursor.execute("""
-        CREATE TABLE products (
-            barcode TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            manufacturer TEXT,
-            brand TEXT,
-            unit_qty REAL,
-            unit_of_measure TEXT,
-            is_weighted INTEGER DEFAULT 0
-        )
-    """)
-
-    cursor.execute("DROP TABLE IF EXISTS prices")
-    cursor.execute("""
-        CREATE TABLE prices (
-            store_id TEXT,
-            barcode TEXT,
-            price REAL NOT NULL,
-            unit_price REAL NOT NULL,
-            last_updated TEXT,
-            PRIMARY KEY(store_id, barcode),
-            FOREIGN KEY(store_id) REFERENCES stores(id),
-            FOREIGN KEY(barcode) REFERENCES products(barcode)
-        )
-    """)
-
-    cursor.execute("DROP TABLE IF EXISTS scraper_status")
-    cursor.execute("""
-        CREATE TABLE scraper_status (
-            chain_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL,
-            last_run TEXT,
-            duration_sec INTEGER,
-            files_downloaded INTEGER,
-            size_mb REAL,
-            status_code TEXT,
-            error TEXT,
-            FOREIGN KEY(chain_id) REFERENCES chains(id)
-        )
-    """)
-
-    # 2. Seed Chains
-    chains_data = [
-        ('shufersal', 'שופרסל', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=100', 'http://prices.shufersal.co.il', 'None'),
-        ('rami_levy', 'רמי לוי', 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=100', 'https://url.retail.rami-levy.co.il', 'None'),
-        ('yohananof', 'יוחננוף', 'https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=100', 'https://yohananof.co.il/prices', 'Cerberus Portal'),
-        ('victory', 'ויקטורי', 'https://images.unsplash.com/photo-1534723452862-4c874018d66d?w=100', 'http://victoryprices.co.il', 'Credentials Required'),
-        ('tiv_taam', 'טיב טעם', 'https://images.unsplash.com/photo-1583258292688-d0213df4a3a8?w=100', 'http://tivtaam.co.il/prices', 'None')
+    # Chain identity (names/colors) comes from pipeline/config.py via migrate;
+    # this only fills the legacy demo-portal fields for the 5 original chains.
+    chains_demo_meta = [
+        ('shufersal', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=100', 'http://prices.shufersal.co.il', 'None'),
+        ('rami_levy', 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=100', 'https://url.retail.rami-levy.co.il', 'None'),
+        ('yohananof', 'https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=100', 'https://yohananof.co.il/prices', 'Cerberus Portal'),
+        ('victory', 'https://images.unsplash.com/photo-1534723452862-4c874018d66d?w=100', 'http://victoryprices.co.il', 'Credentials Required'),
+        ('tiv_taam', 'https://images.unsplash.com/photo-1583258292688-d0213df4a3a8?w=100', 'http://tivtaam.co.il/prices', 'None')
     ]
-    cursor.executemany("INSERT INTO chains VALUES (?, ?, ?, ?, ?)", chains_data)
+    cursor.executemany(
+        "UPDATE chains SET logo_url = ?, base_url = ?, auth_type = ? WHERE id = ?",
+        [(logo, base, auth, cid) for cid, logo, base, auth in chains_demo_meta])
 
     # 3. Compile large list of supermarket branches in main Israeli cities
     cities_coords = {
@@ -359,7 +309,9 @@ def seed_database():
         unit = random.choice(['גרם', 'מ"ל'])
         products_catalog.append((barcode, name, mfg, brnd, qty, unit, 0))
 
-    cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", products_catalog)
+    cursor.executemany(
+        """INSERT INTO products (barcode, name, manufacturer, brand, unit_qty, unit_of_measure, is_weighted)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""", products_catalog)
     print(f"Seeded {len(products_catalog)} products in the catalog.")
 
     # 5. Seed Prices across all stores for all products
@@ -479,12 +431,53 @@ def seed_database():
             else:
                 unit_price = store_price
 
-            prices_data.append((store_id, barcode, store_price, unit_price, '2026-05-21 03:00'))
+            prices_data.append((store_id, barcode, store_price, unit_price,
+                                datetime.now().strftime('%Y-%m-%d %H:%M')))
 
     cursor.executemany("INSERT INTO prices VALUES (?, ?, ?, ?, ?)", prices_data)
     print(f"Seeded {len(prices_data)} price mappings across all stores.")
 
-    # 6. Seed Scraper Status
+    # 6. Seed demo promotions so the promo API/UI paths work without real data.
+    # Mix of regular, club-only, multi-buy (min_qty=2) and a few expired ones.
+    now = datetime.now()
+    promo_start = (now - timedelta(days=3)).strftime('%Y-%m-%d %H:%M')
+    promo_end = (now + timedelta(days=14)).strftime('%Y-%m-%d %H:%M')
+    expired_end = (now - timedelta(days=1)).strftime('%Y-%m-%d %H:%M')
+    updated_at = now.strftime('%Y-%m-%d %H:%M')
+
+    price_lookup = {(p[0], p[1]): p[2] for p in prices_data}
+    promo_barcodes = ['7290000042420', '7290000066110', '7290000323320',
+                      '7290000373462', '7290000155021', '7290000119016']
+
+    promo_count = 0
+    for store in random.sample(stores_data, k=int(len(stores_data) * 0.35)):
+        store_id, chain_id = store[0], store[1]
+        for barcode in random.sample(promo_barcodes, k=3):
+            price = price_lookup.get((store_id, barcode))
+            if price is None:
+                continue
+            promo_count += 1
+            requires_club = 1 if random.random() < 0.25 else 0
+            min_qty = 2 if random.random() < 0.15 else 1
+            discounted = round(price * random.uniform(0.70, 0.88), 2)
+            end_date = expired_end if random.random() < 0.10 else promo_end
+            cursor.execute(
+                """INSERT INTO promotions
+                     (chain_id, store_id, promotion_id, description, start_date, end_date,
+                      min_qty, discounted_price, requires_club, club_id, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (chain_id, store_id, f'DEMO-{promo_count}',
+                 'מבצע דמו: מחיר מיוחד', promo_start, end_date,
+                 min_qty, discounted, requires_club,
+                 'demo_club' if requires_club else None, updated_at))
+            cursor.execute(
+                """INSERT INTO promotion_items
+                     (promotion_row_id, barcode, min_qty, discounted_price)
+                   VALUES (?, ?, ?, ?)""",
+                (cursor.lastrowid, barcode, min_qty, discounted))
+    print(f"Seeded {promo_count} demo promotions.")
+
+    # 7. Demo scraper statuses (migrate created idle rows for all chains)
     scrapers = [
         ('shufersal', 'idle', '2026-05-21 02:14', 142, 4, 52.4, 'Success', None),
         ('rami_levy', 'idle', '2026-05-21 01:45', 210, 6, 78.1, 'Success', None),
@@ -492,11 +485,23 @@ def seed_database():
         ('victory', 'error', '2026-05-21 00:30', 35, 0, 0, 'Failed', 'HTTP 403 Forbidden: IP rate limit blocked'),
         ('tiv_taam', 'idle', '2026-05-21 04:12', 112, 3, 24.8, 'Success', None)
     ]
-    cursor.executemany("INSERT INTO scraper_status VALUES (?, ?, ?, ?, ?, ?, ?, ?)", scrapers)
+    cursor.executemany("INSERT OR REPLACE INTO scraper_status VALUES (?, ?, ?, ?, ?, ?, ?, ?)", scrapers)
 
     conn.commit()
+    rebuild_fts(conn)
     conn.close()
-    print("Database seeding completed successfully.")
+    print("Demo database seeding completed successfully.")
+
 
 if __name__ == '__main__':
-    seed_database()
+    parser = argparse.ArgumentParser(description='Seed SYNTHETIC demo data into a fresh database.')
+    parser.add_argument('--demo', action='store_true',
+                        help='required confirmation that you want synthetic data')
+    parser.add_argument('--db', default=None, help='path to the SQLite database')
+    args = parser.parse_args()
+    if not args.demo:
+        print('This script generates SYNTHETIC demo data and must not run against a')
+        print('real-data database. Re-run with --demo to confirm, e.g.:')
+        print('  python seed_production_data.py --demo --db demo.db')
+        sys.exit(1)
+    seed_database(args.db)

@@ -259,12 +259,21 @@ def generate_catalog():
         """, chunk)
         
     conn.commit()
+
+    print("Rebuilding product search index...")
+    from pipeline.db import rebuild_fts
+    rebuild_fts(conn)
     conn.close()
-    
+
     t_elapsed = time.time() - t0
     print(f"Seeding completed successfully in {t_elapsed:.2f} seconds.")
     print(f"Total Products Seeded: {len(products_batch)}")
     print(f"Total Store Prices Seeded: {len(prices_batch)}")
 
 if __name__ == '__main__':
+    import sys
+    if '--demo' not in sys.argv:
+        print('This script generates SYNTHETIC catalog data on top of an existing demo DB.')
+        print('Re-run with --demo to confirm: python generate_massive_catalog.py --demo')
+        sys.exit(1)
     generate_catalog()

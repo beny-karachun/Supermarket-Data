@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root>
+  <ChainID>7290000000001</ChainID>
+  <SubChainID>001</SubChainID>
+  <StoreID>005</StoreID>
+  <Promotions>
+    <Promotion>
+      <PromotionUpdateTime>2026-06-01T00:00:00.000</PromotionUpdateTime>
+      <PromotionID>1001</PromotionID>
+      <PromotionDescription>קוטג' במחיר מבצע</PromotionDescription>
+      <PromotionStartDateTime>2026-05-01T00:00:00.000</PromotionStartDateTime>
+      <PromotionEndDateTime>2026-12-31T23:59:00.000</PromotionEndDateTime>
+      <ClubID>0</ClubID>
+      <Groups>
+        <Group>
+          <GroupID>1</GroupID>
+          <PromotionItems>
+            <PromotionItem>
+              <ItemCode>7290000042420</ItemCode>
+              <RewardType>1</RewardType>
+              <MinQty>1</MinQty>
+              <DiscountedPrice>4.90</DiscountedPrice>
+              <DiscountRate>16.95</DiscountRate>
+              <bIsWeighted>0</bIsWeighted>
+            </PromotionItem>
+          </PromotionItems>
+        </Group>
+      </Groups>
+    </Promotion>
+    <Promotion>
+      <PromotionUpdateTime>2026-06-01T00:00:00.000</PromotionUpdateTime>
+      <PromotionID>1002</PromotionID>
+      <PromotionDescription>חלב 2 ב-10 לחברי מועדון</PromotionDescription>
+      <PromotionStartDateTime>2026-05-01T00:00:00.000</PromotionStartDateTime>
+      <PromotionEndDateTime>2026-12-31T23:59:00.000</PromotionEndDateTime>
+      <ClubID>777</ClubID>
+      <Groups>
+        <Group>
+          <GroupID>1</GroupID>
+          <PromotionItems>
+            <PromotionItem>
+              <ItemCode>7290112349102</ItemCode>
+              <RewardType>10</RewardType>
+              <MinQty>2</MinQty>
+              <DiscountedPrice>10.00</DiscountedPrice>
+              <DiscountRate>19.35</DiscountRate>
+            </PromotionItem>
+            <PromotionItem>
+              <ItemCode>0000000000000</ItemCode>
+              <MinQty>1</MinQty>
+            </PromotionItem>
+          </PromotionItems>
+        </Group>
+      </Groups>
+    </Promotion>
+    <Promotion>
+      <PromotionID>1003</PromotionID>
+      <PromotionDescription>מבצע שפג תוקפו</PromotionDescription>
+      <PromotionStartDateTime>2025-01-01T00:00:00.000</PromotionStartDateTime>
+      <PromotionEndDateTime>2025-02-01T00:00:00.000</PromotionEndDateTime>
+      <ClubID>0 - כלל הלקוחות</ClubID>
+      <Groups>
+        <Group>
+          <PromotionItems>
+            <PromotionItem>
+              <ItemCode>7290000042420</ItemCode>
+              <MinQty>1</MinQty>
+              <DiscountedPrice>3.00</DiscountedPrice>
+              <IsGiftItem>1</IsGiftItem>
+            </PromotionItem>
+          </PromotionItems>
+        </Group>
+      </Groups>
+    </Promotion>
+  </Promotions>
+</Root>
